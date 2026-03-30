@@ -13,12 +13,15 @@
  */
 #define _POSIX_C_SOURCE 200809L
 
+#include <stdatomic.h>
+
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,13 +98,18 @@ typedef struct {
 typedef struct {
     char            id[32];
     int             active;
+    time_t          created_at;
+    time_t          last_active;
     cJSON          *history;       /* JSON array of {"role":..., "parts":...} */
     pending_prompt_t pending[64];  /* indexed by msgID */
     msg_response_t   responses[64];
 } session_t;
 
+#define SESSION_TIMEOUT_SEC (30 * 60)  /* 30 minutes */
+
 static session_t   g_sessions[MAX_SESSIONS];
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
+static atomic_int g_running = 1;
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Utility
@@ -110,9 +118,114 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static void generate_id(char *out, size_t len)
 {
     static const char hex[] = "0123456789abcdef";
-    for (size_t i = 0; i < len - 1 && i < 16; i++)
-        out[i] = hex[rand() % 16];
-    out[len > 16 ? 16 : len - 1] = '\0';
+    uint8_t randbuf[16];
+    extern void arc4random_buf(void *, size_t);
+    arc4random_buf(randbuf, sizeof(randbuf));
+    size_t n = len - 1;
+    if (n > 16) n = 16;
+    for (size_t i = 0; i < n; i++)
+        out[i] = hex[randbuf[i] % 16];
+    out[n] = '\0';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Colored Logging
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+#define LOG_CYAN    "\033[36m"
+#define LOG_GREEN   "\033[32m"
+#define LOG_YELLOW  "\033[33m"
+#define LOG_RED     "\033[31m"
+#define LOG_MAGENTA "\033[35m"
+#define LOG_DIM     "\033[2m"
+#define LOG_RESET   "\033[0m"
+
+static void log_info(const char *tag, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    fprintf(stderr, LOG_CYAN "[%s]" LOG_RESET " ", tag);
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+    va_end(ap);
+}
+
+static void log_ok(const char *tag, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    fprintf(stderr, LOG_GREEN "[%s]" LOG_RESET " ", tag);
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+    va_end(ap);
+}
+
+static void log_warn(const char *tag, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    fprintf(stderr, LOG_YELLOW "[%s]" LOG_RESET " ", tag);
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+    va_end(ap);
+}
+
+static void log_err(const char *tag, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    fprintf(stderr, LOG_RED "[%s]" LOG_RESET " ", tag);
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+    va_end(ap);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Session Cleanup
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+static void session_free_responses(session_t *sess)
+{
+    for (int m = 0; m < 64; m++) {
+        msg_response_t *mr = &sess->responses[m];
+        for (int c = 0; c < mr->chunk_count; c++) {
+            free(mr->chunks[c]);
+            mr->chunks[c] = NULL;
+        }
+        mr->chunk_count = 0;
+    }
+}
+
+static void session_destroy(session_t *sess)
+{
+    session_free_responses(sess);
+    if (sess->history) {
+        cJSON_Delete(sess->history);
+        sess->history = NULL;
+    }
+    sess->active = 0;
+}
+
+/* Reaper thread — runs every 60s, cleans expired sessions */
+static void *session_reaper_thread(void *arg)
+{
+    (void)arg;
+    while (g_running) {
+        sleep(60);
+        time_t now = time(NULL);
+        pthread_mutex_lock(&g_lock);
+        for (int i = 0; i < MAX_SESSIONS; i++) {
+            if (g_sessions[i].active &&
+                difftime(now, g_sessions[i].last_active) > SESSION_TIMEOUT_SEC) {
+                log_warn("reaper", "Expiring session %s (idle %ds)",
+                         g_sessions[i].id,
+                         (int)difftime(now, g_sessions[i].last_active));
+                session_destroy(&g_sessions[i]);
+            }
+        }
+        pthread_mutex_unlock(&g_lock);
+    }
+    return NULL;
 }
 
 static char *load_env(const char *name, const char *fallback)
@@ -255,6 +368,46 @@ static cJSON *gemini_generate_content(cJSON *history)
     cJSON_AddItemToObject(fn2_params, "required", fn2_req);
     cJSON_AddItemToObject(fn2, "parameters", fn2_params);
     cJSON_AddItemToArray(funcs, fn2);
+
+    /* client_write_file */
+    cJSON *fn3 = cJSON_CreateObject();
+    cJSON_AddStringToObject(fn3, "name", "client_write_file");
+    cJSON_AddStringToObject(fn3, "description",
+        "Writes content to a file on the client's local machine. Creates or overwrites.");
+    cJSON *fn3_params = cJSON_CreateObject();
+    cJSON_AddStringToObject(fn3_params, "type", "OBJECT");
+    cJSON *fn3_props = cJSON_CreateObject();
+    cJSON *fn3_fp = cJSON_CreateObject();
+    cJSON_AddStringToObject(fn3_fp, "type", "STRING");
+    cJSON_AddStringToObject(fn3_fp, "description", "Path to write to.");
+    cJSON_AddItemToObject(fn3_props, "filepath", fn3_fp);
+    cJSON *fn3_ct = cJSON_CreateObject();
+    cJSON_AddStringToObject(fn3_ct, "type", "STRING");
+    cJSON_AddStringToObject(fn3_ct, "description", "Content to write.");
+    cJSON_AddItemToObject(fn3_props, "content", fn3_ct);
+    cJSON_AddItemToObject(fn3_params, "properties", fn3_props);
+    cJSON *fn3_req = cJSON_CreateArray();
+    cJSON_AddItemToArray(fn3_req, cJSON_CreateString("filepath"));
+    cJSON_AddItemToArray(fn3_req, cJSON_CreateString("content"));
+    cJSON_AddItemToObject(fn3_params, "required", fn3_req);
+    cJSON_AddItemToObject(fn3, "parameters", fn3_params);
+    cJSON_AddItemToArray(funcs, fn3);
+
+    /* client_list_directory */
+    cJSON *fn4 = cJSON_CreateObject();
+    cJSON_AddStringToObject(fn4, "name", "client_list_directory");
+    cJSON_AddStringToObject(fn4, "description",
+        "Lists files and directories at a given path on the client's machine.");
+    cJSON *fn4_params = cJSON_CreateObject();
+    cJSON_AddStringToObject(fn4_params, "type", "OBJECT");
+    cJSON *fn4_props = cJSON_CreateObject();
+    cJSON *fn4_path = cJSON_CreateObject();
+    cJSON_AddStringToObject(fn4_path, "type", "STRING");
+    cJSON_AddStringToObject(fn4_path, "description", "Directory path to list. Defaults to current dir.");
+    cJSON_AddItemToObject(fn4_props, "path", fn4_path);
+    cJSON_AddItemToObject(fn4_params, "properties", fn4_props);
+    cJSON_AddItemToObject(fn4, "parameters", fn4_params);
+    cJSON_AddItemToArray(funcs, fn4);
 
     cJSON_AddItemToObject(tool, "functionDeclarations", funcs);
     cJSON_AddItemToArray(tools, tool);
@@ -579,17 +732,18 @@ static int handle_dns_query(const uint8_t *query, size_t query_len,
                                   resp_buf, resp_buf_len);
     }
 
-    /* Split into labels */
+    /* Split into labels (thread-safe) */
     char *parts[16];
     int nparts = 0;
     char qname_copy[512];
     strncpy(qname_copy, qname, sizeof(qname_copy) - 1);
     qname_copy[sizeof(qname_copy) - 1] = '\0';
 
-    char *tok = strtok(qname_copy, ".");
+    char *saveptr = NULL;
+    char *tok = strtok_r(qname_copy, ".", &saveptr);
     while (tok && nparts < 16) {
         parts[nparts++] = tok;
-        tok = strtok(NULL, ".");
+        tok = strtok_r(NULL, ".", &saveptr);
     }
 
     /* ── init.llm.local. ──────────────────────────────────────────── */
@@ -611,10 +765,12 @@ static int handle_dns_query(const uint8_t *query, size_t query_len,
         memset(sess, 0, sizeof(*sess));
         generate_id(sess->id, sizeof(sess->id));
         sess->active = 1;
+        sess->created_at = time(NULL);
+        sess->last_active = sess->created_at;
         sess->history = cJSON_CreateArray();
         pthread_mutex_unlock(&g_lock);
 
-        fprintf(stderr, "[init] New session: %s\n", sess->id);
+        log_ok("init", "New session: %s", sess->id);
         return dns_build_response(qid, qname, DNS_RCODE_OK, sess->id,
                                   resp_buf, resp_buf_len);
     }
@@ -730,7 +886,15 @@ static int handle_dns_query(const uint8_t *query, size_t query_len,
                 reply = mr->chunks[seq];
             } else {
                 reply = "EOF";
+                /* Free response chunks now that client has received all */
+                for (int c = 0; c < mr->chunk_count; c++) {
+                    free(mr->chunks[c]);
+                    mr->chunks[c] = NULL;
+                }
+                mr->chunk_count = 0;
+                mr->ready = 0;
             }
+            sess->last_active = time(NULL);
         }
         pthread_mutex_unlock(&g_lock);
 
@@ -1047,10 +1211,18 @@ static void *doh_server_thread(void *arg)
  * Main
  * ═══════════════════════════════════════════════════════════════════════════ */
 
+static void sigint_main_handler(int sig)
+{
+    (void)sig;
+    g_running = 0;
+    fprintf(stderr, "\n" LOG_YELLOW "[server]" LOG_RESET " Shutting down...\n");
+}
+
 int main(void)
 {
-    srand((unsigned)time(NULL));
     signal(SIGPIPE, SIG_IGN);
+    signal(SIGINT, sigint_main_handler);
+    signal(SIGTERM, sigint_main_handler);
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
@@ -1061,7 +1233,7 @@ int main(void)
     /* Read config */
     char *api_key = load_env("GEMINI_API_KEY", NULL);
     if (!api_key || !api_key[0]) {
-        fprintf(stderr, "FATAL: GEMINI_API_KEY not set in .env or environment\n");
+        log_err("FATAL", "GEMINI_API_KEY not set in .env or environment");
         return 1;
     }
     strncpy(g_config.api_key, api_key, sizeof(g_config.api_key) - 1);
@@ -1094,18 +1266,27 @@ int main(void)
     strncpy(g_config.tls_key, key, sizeof(g_config.tls_key) - 1);
     free(key);
 
-    /* Start the appropriate server */
-    fprintf(stderr,
-        "╔══════════════════════════════════════════════════════╗\n"
-        "║   Agentic DNS-LLM Server (C)                        ║\n"
-        "║   Model: %-40s  ║\n"
-        "║   Mode:  %-40s  ║\n"
-        "║   Port:  %-40d  ║\n"
-        "╚══════════════════════════════════════════════════════╝\n",
-        g_config.model,
-        g_config.use_doh ? "DoH (HTTPS)" :
-        g_config.use_dot ? "DoT (TLS)"   : "UDP (plain)",
-        g_config.port);
+    /* Banner */
+    fprintf(stderr, "\n");
+    fprintf(stderr, LOG_CYAN "  ██████╗██╗      █████╗ ██╗    ██╗" LOG_RESET "\n");
+    fprintf(stderr, LOG_CYAN " ██╔════╝██║     ██╔══██╗██║    ██║" LOG_RESET "\n");
+    fprintf(stderr, LOG_MAGENTA " ██║     ██║     ███████║██║ █╗ ██║" LOG_RESET "\n");
+    fprintf(stderr, LOG_MAGENTA " ██║     ██║     ██╔══██║██║███╗██║" LOG_RESET "\n");
+    fprintf(stderr, LOG_MAGENTA " ╚██████╗███████╗██║  ██║╚███╔███╔╝" LOG_RESET "\n");
+    fprintf(stderr, LOG_MAGENTA "  ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝" LOG_RESET "\n");
+    fprintf(stderr, LOG_DIM "  DNS-CLAW Server v1.0.0" LOG_RESET "\n\n");
+
+    log_info("config", "Model:     %s", g_config.model);
+    log_info("config", "Transport: %s",
+             g_config.use_doh ? "DoH (HTTPS)" :
+             g_config.use_dot ? "DoT (TLS)" : "UDP (plain)");
+    log_info("config", "Port:      %d", g_config.port);
+    fprintf(stderr, "\n");
+
+    /* Start session reaper */
+    pthread_t reaper;
+    pthread_create(&reaper, NULL, session_reaper_thread, NULL);
+    pthread_detach(reaper);
 
     if (g_config.use_doh) {
         doh_server_thread(NULL);
@@ -1115,6 +1296,15 @@ int main(void)
         udp_server_thread(NULL);
     }
 
+    /* Cleanup all sessions on exit */
+    pthread_mutex_lock(&g_lock);
+    for (int i = 0; i < MAX_SESSIONS; i++) {
+        if (g_sessions[i].active)
+            session_destroy(&g_sessions[i]);
+    }
+    pthread_mutex_unlock(&g_lock);
+
     curl_global_cleanup();
+    log_ok("server", "Shutdown complete.");
     return 0;
 }
