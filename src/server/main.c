@@ -36,6 +36,7 @@
 
 #include "base32.h"
 #include "base64.h"
+#include "config.h"
 #include "dns_proto.h"
 
 /* Portable case-insensitive substring search (replaces strcasestr) */
@@ -43,13 +44,14 @@ static char *ci_strstr(const char *haystack, const char *needle)
 {
     if (!*needle) return (char *)haystack;
     size_t nlen = strlen(needle);
-    for (; *haystack; haystack++) {
+    size_t hlen = strlen(haystack);
+    for (size_t h = 0; h + nlen <= hlen; h++) {
         size_t i;
         for (i = 0; i < nlen; i++) {
-            if (tolower((unsigned char)haystack[i]) != tolower((unsigned char)needle[i]))
+            if (tolower((unsigned char)haystack[h + i]) != tolower((unsigned char)needle[i]))
                 break;
         }
-        if (i == nlen) return (char *)haystack;
+        if (i == nlen) return (char *)(haystack + h);
     }
     return NULL;
 }
@@ -76,6 +78,8 @@ static struct {
 #define MAX_CHUNKS       256
 #define MAX_RESP_CHUNKS  512
 #define CHUNK_SIZE       200  /* base64 chars per TXT response chunk */
+#define MAX_MSG_IDS      256  /* max concurrent message IDs per session */
+#define UPLOAD_B32_MAX   (MAX_CHUNKS * 256)  /* max reassembled base32 data */
 
 typedef struct {
     int    seq;
@@ -98,18 +102,19 @@ typedef struct {
 typedef struct {
     char            id[32];
     int             active;
+    int             busy;          /* refcount: >0 means LLM threads are using this session */
     time_t          created_at;
     time_t          last_active;
     cJSON          *history;       /* JSON array of {"role":..., "parts":...} */
-    pending_prompt_t pending[64];  /* indexed by msgID */
-    msg_response_t   responses[64];
+    pending_prompt_t pending[MAX_MSG_IDS];
+    msg_response_t   responses[MAX_MSG_IDS];
 } session_t;
 
 #define SESSION_TIMEOUT_SEC (30 * 60)  /* 30 minutes */
 
 static session_t   g_sessions[MAX_SESSIONS];
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
-static atomic_int g_running = 1;
+static atomic_int g_running = ATOMIC_VAR_INIT(1);
 static int g_server_fd = -1;  /* closed from signal handler to unblock accept/recvfrom */
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -187,7 +192,7 @@ static void log_err(const char *tag, const char *fmt, ...)
 
 static void session_free_responses(session_t *sess)
 {
-    for (int m = 0; m < 64; m++) {
+    for (int m = 0; m < MAX_MSG_IDS; m++) {
         msg_response_t *mr = &sess->responses[m];
         for (int c = 0; c < mr->chunk_count; c++) {
             free(mr->chunks[c]);
@@ -217,6 +222,7 @@ static void *session_reaper_thread(void *arg)
         pthread_mutex_lock(&g_lock);
         for (int i = 0; i < MAX_SESSIONS; i++) {
             if (g_sessions[i].active &&
+                g_sessions[i].busy == 0 &&
                 difftime(now, g_sessions[i].last_active) > SESSION_TIMEOUT_SEC) {
                 log_warn("reaper", "Expiring session %s (idle %ds)",
                          g_sessions[i].id,
@@ -236,40 +242,7 @@ static char *load_env(const char *name, const char *fallback)
     return fallback ? strdup(fallback) : NULL;
 }
 
-/* Simple .env parser */
-static void load_dotenv(const char *path)
-{
-    FILE *f = fopen(path, "r");
-    if (!f) return;
-    char line[1024];
-    while (fgets(line, sizeof(line), f)) {
-        /* Skip comments and empty lines */
-        char *p = line;
-        while (*p == ' ' || *p == '\t') p++;
-        if (*p == '#' || *p == '\n' || *p == '\0') continue;
-
-        char *eq = strchr(p, '=');
-        if (!eq) continue;
-        *eq = '\0';
-
-        char *key = p;
-        char *val = eq + 1;
-
-        /* Trim key */
-        char *ke = eq - 1;
-        while (ke > key && (*ke == ' ' || *ke == '\t')) *ke-- = '\0';
-
-        /* Trim val */
-        while (*val == ' ' || *val == '\t' || *val == '"') val++;
-        size_t vlen = strlen(val);
-        while (vlen > 0 && (val[vlen-1] == '\n' || val[vlen-1] == '\r' ||
-               val[vlen-1] == '"' || val[vlen-1] == ' '))
-            val[--vlen] = '\0';
-
-        setenv(key, val, 0); /* Don't overwrite existing */
-    }
-    fclose(f);
-}
+/* load_dotenv is provided by config.c (linked via dns_llm_common) */
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Gemini REST API Client
@@ -420,8 +393,8 @@ static cJSON *gemini_generate_content(cJSON *history)
     /* Build URL */
     char url[1024];
     snprintf(url, sizeof(url),
-        "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
-        g_config.model, g_config.api_key);
+        "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent",
+        g_config.model);
 
     /* Execute request */
     CURL *curl = curl_easy_init();
@@ -432,6 +405,9 @@ static cJSON *gemini_generate_content(cJSON *history)
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
+    char key_header[600];
+    snprintf(key_header, sizeof(key_header), "x-goog-api-key: %s", g_config.api_key);
+    headers = curl_slist_append(headers, key_header);
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
@@ -481,6 +457,11 @@ static void *process_llm_thread(void *arg)
     int msg_id = task->msg_id;
     free(task);
 
+    /* Mark session as busy so the reaper won't destroy it mid-flight */
+    pthread_mutex_lock(&g_lock);
+    sess->busy++;
+    pthread_mutex_unlock(&g_lock);
+
     /* 1. Reassemble uploaded chunks */
     pthread_mutex_lock(&g_lock);
     pending_prompt_t *pp = &sess->pending[msg_id];
@@ -491,15 +472,25 @@ static void *process_llm_thread(void *arg)
     }
 
     /* Sort by seq and concatenate base32 data */
-    char b32_combined[65536] = {0};
+    char b32_combined[UPLOAD_B32_MAX];
+    size_t b32_pos = 0;
+    b32_combined[0] = '\0';
     for (int s = 0; s <= max_seq; s++) {
         for (int i = 0; i < pp->chunk_count; i++) {
             if (pp->chunks[i].seq == s) {
-                strcat(b32_combined, pp->chunks[i].data);
+                size_t dlen = strlen(pp->chunks[i].data);
+                if (b32_pos + dlen >= sizeof(b32_combined)) {
+                    fprintf(stderr, "[llm] b32 reassembly overflow\n");
+                    pthread_mutex_unlock(&g_lock);
+                    goto done;
+                }
+                memcpy(b32_combined + b32_pos, pp->chunks[i].data, dlen);
+                b32_pos += dlen;
                 break;
             }
         }
     }
+    b32_combined[b32_pos] = '\0';
     pthread_mutex_unlock(&g_lock);
 
     /* Convert to uppercase for decoding */
@@ -507,16 +498,15 @@ static void *process_llm_thread(void *arg)
         *p = (char)toupper((unsigned char)*p);
 
     /* Base32 decode */
-    size_t b32_len = strlen(b32_combined);
     uint8_t payload_bytes[65536];
     int decoded_len = base32_decode(b32_combined, payload_bytes,
                                     sizeof(payload_bytes));
     if (decoded_len < 0) {
-        fprintf(stderr, "[llm] base32 decode failed (input len=%zu)\n", b32_len);
+        fprintf(stderr, "[llm] base32 decode failed (input len=%zu)\n", b32_pos);
         pthread_mutex_lock(&g_lock);
         sess->responses[msg_id].failed = 1;
         pthread_mutex_unlock(&g_lock);
-        return NULL;
+        goto done;
     }
     payload_bytes[decoded_len] = '\0';
 
@@ -527,7 +517,7 @@ static void *process_llm_thread(void *arg)
         pthread_mutex_lock(&g_lock);
         sess->responses[msg_id].failed = 1;
         pthread_mutex_unlock(&g_lock);
-        return NULL;
+        goto done;
     }
 
     const char *type = cJSON_GetStringValue(cJSON_GetObjectItem(payload, "type"));
@@ -540,7 +530,7 @@ static void *process_llm_thread(void *arg)
         pthread_mutex_lock(&g_lock);
         sess->responses[msg_id].failed = 1;
         pthread_mutex_unlock(&g_lock);
-        return NULL;
+        goto done;
     }
 
     fprintf(stderr, "[llm] Processing sid=%s mid=%d type=%s\n",
@@ -593,7 +583,7 @@ static void *process_llm_thread(void *arg)
         pthread_mutex_lock(&g_lock);
         sess->responses[msg_id].failed = 1;
         pthread_mutex_unlock(&g_lock);
-        return NULL;
+        goto done;
     }
 
     /* 4. Parse response — look for functionCall or text */
@@ -628,18 +618,19 @@ static void *process_llm_thread(void *arg)
         /* Extract text */
         cJSON_AddStringToObject(result_json, "type", "text");
 
-        char text_buf[65536] = {0};
-        if (cand_parts) {
+        char *text_buf = calloc(65536, 1);
+        if (text_buf && cand_parts) {
             cJSON *cp;
             cJSON_ArrayForEach(cp, cand_parts) {
                 const char *t = cJSON_GetStringValue(cJSON_GetObjectItem(cp, "text"));
                 if (t) {
                     size_t cur = strlen(text_buf);
-                    snprintf(text_buf + cur, sizeof(text_buf) - cur, "%s", t);
+                    snprintf(text_buf + cur, 65536 - cur, "%s", t);
                 }
             }
         }
-        cJSON_AddStringToObject(result_json, "content", text_buf);
+        cJSON_AddStringToObject(result_json, "content", text_buf ? text_buf : "");
+        free(text_buf);
     }
 
     /*
@@ -690,6 +681,12 @@ static void *process_llm_thread(void *arg)
 
     fprintf(stderr, "[llm] Response ready sid=%s mid=%d chunks=%d\n",
             sess->id, msg_id, nchunks);
+
+done:
+    /* Release busy refcount */
+    pthread_mutex_lock(&g_lock);
+    sess->busy--;
+    pthread_mutex_unlock(&g_lock);
     return NULL;
 }
 
@@ -770,7 +767,7 @@ static int handle_dns_query(const uint8_t *query, size_t query_len,
         int mid = atoi(parts[3]);
         const char *sid = parts[4];
 
-        if (mid < 0 || mid >= 64) {
+        if (mid < 0 || mid >= MAX_MSG_IDS) {
             return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL,
                                       resp_buf, resp_buf_len);
         }
@@ -810,7 +807,7 @@ static int handle_dns_query(const uint8_t *query, size_t query_len,
         int mid = atoi(parts[1]);
         const char *sid = parts[2];
 
-        if (mid < 0 || mid >= 64) {
+        if (mid < 0 || mid >= MAX_MSG_IDS) {
             return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL,
                                       resp_buf, resp_buf_len);
         }
@@ -849,7 +846,7 @@ static int handle_dns_query(const uint8_t *query, size_t query_len,
         int mid = atoi(parts[1]);
         const char *sid = parts[3];
 
-        if (mid < 0 || mid >= 64) {
+        if (mid < 0 || mid >= MAX_MSG_IDS) {
             return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL,
                                       resp_buf, resp_buf_len);
         }
@@ -977,8 +974,9 @@ static void *dot_client_thread(void *arg)
         int rlen = handle_dns_query(qbuf, (size_t)msglen, rbuf, sizeof(rbuf));
         if (rlen > 0) {
             uint8_t rlb[2] = { (uint8_t)(rlen >> 8), (uint8_t)rlen };
-            SSL_write(dc->ssl, rlb, 2);
-            SSL_write(dc->ssl, rbuf, rlen);
+            if (SSL_write(dc->ssl, rlb, 2) != 2 ||
+                SSL_write(dc->ssl, rbuf, rlen) != rlen)
+                break;
         }
     }
 
@@ -1068,7 +1066,7 @@ static void *doh_client_thread(void *arg)
 {
     dot_client_t *dc = (dot_client_t *)arg;
 
-    /* Read HTTP request (simplified parser for POST /dns-query) */
+    /* Read HTTP request (validated parser for POST /dns-query) */
     char http_buf[65536];
     int total = 0;
     int header_end = -1;
@@ -1090,10 +1088,28 @@ static void *doh_client_thread(void *arg)
     if (header_end < 0) goto done;
 
     {
+        /* Validate HTTP method and path */
+        if (strncmp(http_buf, "POST ", 5) != 0) {
+            const char *err = "HTTP/1.1 405 Method Not Allowed\r\n"
+                              "Content-Length: 0\r\nConnection: close\r\n\r\n";
+            SSL_write(dc->ssl, err, (int)strlen(err));
+            goto done;
+        }
+        if (!strstr(http_buf, "/dns-query")) {
+            const char *err = "HTTP/1.1 404 Not Found\r\n"
+                              "Content-Length: 0\r\nConnection: close\r\n\r\n";
+            SSL_write(dc->ssl, err, (int)strlen(err));
+            goto done;
+        }
+
         /* Parse Content-Length */
         int content_length = 0;
         char *cl = ci_strstr(http_buf, "Content-Length:");
-        if (cl) content_length = atoi(cl + 15);
+        if (cl) {
+            cl += 15;  /* skip "Content-Length:" */
+            while (*cl == ' ') cl++;  /* skip optional whitespace */
+            content_length = atoi(cl);
+        }
 
         /* Read remaining body if needed */
         int body_so_far = total - header_end;
@@ -1216,7 +1232,7 @@ static void *doh_server_thread(void *arg)
 static void sigint_main_handler(int sig)
 {
     (void)sig;
-    g_running = 0;
+    atomic_store(&g_running, 0);
     /* Close the server fd to unblock recvfrom/accept */
     if (g_server_fd >= 0) {
         close(g_server_fd);
@@ -1243,6 +1259,8 @@ int main(void)
     char *api_key = load_env("GEMINI_API_KEY", NULL);
     if (!api_key || !api_key[0]) {
         log_err("FATAL", "GEMINI_API_KEY not set in .env or environment");
+        free(api_key);
+        curl_global_cleanup();
         return 1;
     }
     strncpy(g_config.api_key, api_key, sizeof(g_config.api_key) - 1);
@@ -1275,32 +1293,8 @@ int main(void)
     strncpy(g_config.tls_key, key, sizeof(g_config.tls_key) - 1);
     free(key);
 
-    /* Banner — Red → White gradient */
-    fprintf(stderr, "\n");
-    static const char *ART[] = {
-        "▓█████▄  ███▄    █   ██████     ▄████▄   ██▓    ▄▄▄       █     █░",
-        "▒██▀ ██▌ ██ ▀█   █ ▒██    ▒    ▒██▀ ▀█  ▓██▒   ▒████▄    ▓█░ █ ░█░",
-        "░██   █▌▓██  ▀█ ██▒░ ▓██▄      ▒▓█    ▄ ▒██░   ▒██  ▀█▄  ▒█░ █ ░█ ",
-        "░▓█▄   ▌▓██▒  ▐▌██▒  ▒   ██▒   ▒▓▓▄ ▄██▒▒██░   ░██▄▄▄▄██ ░█░ █ ░█ ",
-        "░▒████▓ ▒██░   ▓██░▒██████▒▒   ▒ ▓███▀ ░░██████▒▓█   ▓██▒░░██▒██▓ ",
-        " ▒▒▓  ▒ ░ ▒░   ▒ ▒ ▒ ▒▓▒ ▒ ░   ░ ░▒ ▒  ░░ ▒░▓  ░▒▒   ▓▒█░░ ▓░▒ ▒  ",
-        " ░ ▒  ▒ ░ ░░   ░ ▒░░ ░▒  ░ ░     ░  ▒   ░ ░ ▒  ░ ▒   ▒▒ ░  ▒ ░ ░  ",
-        " ░ ░  ░    ░   ░ ░ ░  ░  ░     ░          ░ ░    ░   ▒     ░   ░  ",
-        "   ░             ░       ░     ░ ░          ░  ░     ░  ░    ░    ",
-        " ░                             ░                                  ",
-    };
-    int banner_colors[][3] = {
-        {255, 20,  20},   {255, 60,  50},   {255, 100, 80},
-        {255, 140, 110},  {255, 170, 150},  {255, 195, 180},
-        {255, 215, 210},  {255, 230, 225},  {255, 245, 242},
-        {255, 255, 255},
-    };
-    for (int i = 0; i < 10; i++) {
-        fprintf(stderr, "\033[38;2;%d;%d;%dm%s" LOG_RESET "\n",
-                banner_colors[i][0], banner_colors[i][1], banner_colors[i][2],
-                ART[i]);
-    }
-    fprintf(stderr, "\n");
+    /* Banner */
+    print_banner_to(stderr);
     fprintf(stderr, LOG_R4 "  DNS-CLAW Server" LOG_DIM "  v1.0.0" LOG_RESET "\n\n");
 
     log_info("config", "Model:     %s", g_config.model);

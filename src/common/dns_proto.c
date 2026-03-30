@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -249,8 +250,8 @@ int dns_parse_txt_response(const uint8_t *msg, size_t msglen,
 
         if (pos + 10 > msglen) return -1;
         uint16_t rtype = get16(msg + pos);    pos += 2;
-        /* uint16_t rclass = */ get16(msg + pos); pos += 2;
-        /* uint32_t ttl = */ pos += 4;
+        pos += 2; /* RCLASS */
+        pos += 4; /* TTL */
         uint16_t rdlen = get16(msg + pos);    pos += 2;
 
         if (rtype == DNS_TYPE_TXT && i == 0) {
@@ -296,7 +297,7 @@ int dns_query_udp(const char *server_ip, uint16_t port,
                   char *txt_out, size_t txt_out_len)
 {
     uint8_t qbuf[DNS_MAX_MSG];
-    uint16_t qid = (uint16_t)(rand() & 0xFFFF);
+    uint16_t qid = (uint16_t)(arc4random() & 0xFFFF);
     int qlen = dns_build_query(qid, qname, qbuf, sizeof(qbuf));
     if (qlen < 0) return -1;
 
@@ -304,13 +305,19 @@ int dns_query_udp(const char *server_ip, uint16_t port,
     if (fd < 0) return -1;
 
     struct timeval tv = { .tv_sec = 10 };
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        close(fd);
+        return -1;
+    }
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    inet_pton(AF_INET, server_ip, &addr.sin_addr);
+    if (inet_pton(AF_INET, server_ip, &addr.sin_addr) != 1) {
+        close(fd);
+        return -1;
+    }
 
     ssize_t sent = sendto(fd, qbuf, (size_t)qlen, 0,
                           (struct sockaddr *)&addr, sizeof(addr));
@@ -333,7 +340,7 @@ int dns_query_dot(const char *server_ip, uint16_t port,
                   char *txt_out, size_t txt_out_len)
 {
     uint8_t qbuf[DNS_MAX_MSG];
-    uint16_t qid = (uint16_t)(rand() & 0xFFFF);
+    uint16_t qid = (uint16_t)(arc4random() & 0xFFFF);
     int qlen = dns_build_query(qid, qname, qbuf, sizeof(qbuf));
     if (qlen < 0) return -1;
 
@@ -345,7 +352,10 @@ int dns_query_dot(const char *server_ip, uint16_t port,
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    inet_pton(AF_INET, server_ip, &addr.sin_addr);
+    if (inet_pton(AF_INET, server_ip, &addr.sin_addr) != 1) {
+        close(fd);
+        return -1;
+    }
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close(fd);
@@ -371,8 +381,14 @@ int dns_query_dot(const char *server_ip, uint16_t port,
     /* DNS over TCP: 2-byte length prefix + message */
     uint8_t lenbuf[2];
     put16(lenbuf, (uint16_t)qlen);
-    SSL_write(ssl, lenbuf, 2);
-    SSL_write(ssl, qbuf, qlen);
+    if (SSL_write(ssl, lenbuf, 2) != 2 ||
+        SSL_write(ssl, qbuf, qlen) != qlen) {
+        SSL_shutdown(ssl);
+        SSL_free(ssl);
+        SSL_CTX_free(ctx);
+        close(fd);
+        return -1;
+    }
 
     /* Read response: 2-byte length prefix */
     uint8_t rlenbuf[2];
@@ -435,7 +451,7 @@ int dns_query_doh(const char *url, const char *qname, int insecure,
                   char *txt_out, size_t txt_out_len)
 {
     uint8_t qbuf[DNS_MAX_MSG];
-    uint16_t qid = (uint16_t)(rand() & 0xFFFF);
+    uint16_t qid = (uint16_t)(arc4random() & 0xFFFF);
     int qlen = dns_build_query(qid, qname, qbuf, sizeof(qbuf));
     if (qlen < 0) return -1;
 

@@ -19,6 +19,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <getopt.h>
 #include <pthread.h>
@@ -28,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <termios.h>
 #include <time.h>
@@ -38,6 +40,7 @@
 
 #include "base32.h"
 #include "base64.h"
+#include "config.h"
 #include "dns_proto.h"
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -45,6 +48,9 @@
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 #define DNS_CLAW_VERSION "1.0.0"
+#define MAX_MSG_IDS      256   /* must match server's MAX_MSG_IDS */
+#define UPLOAD_CHUNK_SZ  35    /* base32(35 bytes) = 56 chars, fits DNS 63-char label */
+#define RESP_BUF_SIZE    131072  /* 128KB response buffer */
 
 static struct {
     char server_addr[256];
@@ -79,35 +85,7 @@ static void sigint_handler(int sig)
     write(STDOUT_FILENO, "\n", 1);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
- * .env loader
- * ═══════════════════════════════════════════════════════════════════════════ */
-
-static void load_dotenv(const char *path)
-{
-    FILE *f = fopen(path, "r");
-    if (!f) return;
-    char line[1024];
-    while (fgets(line, sizeof(line), f)) {
-        char *p = line;
-        while (*p == ' ' || *p == '\t') p++;
-        if (*p == '#' || *p == '\n' || *p == '\0') continue;
-        char *eq = strchr(p, '=');
-        if (!eq) continue;
-        *eq = '\0';
-        char *key = p;
-        char *val = eq + 1;
-        char *ke = eq - 1;
-        while (ke > key && (*ke == ' ' || *ke == '\t')) *ke-- = '\0';
-        while (*val == ' ' || *val == '\t' || *val == '"') val++;
-        size_t vlen = strlen(val);
-        while (vlen > 0 && (val[vlen-1] == '\n' || val[vlen-1] == '\r' ||
-               val[vlen-1] == '"' || val[vlen-1] == ' '))
-            val[--vlen] = '\0';
-        setenv(key, val, 0);
-    }
-    fclose(f);
-}
+/* load_dotenv is provided by config.c (linked via dns_llm_common) */
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Terminal Helpers
@@ -566,33 +544,7 @@ static void render_markdown(const char *text)
 
 static void print_banner(void)
 {
-    static const char *ART[] = {
-        "▓█████▄  ███▄    █   ██████     ▄████▄   ██▓    ▄▄▄       █     █░",
-        "▒██▀ ██▌ ██ ▀█   █ ▒██    ▒    ▒██▀ ▀█  ▓██▒   ▒████▄    ▓█░ █ ░█░",
-        "░██   █▌▓██  ▀█ ██▒░ ▓██▄      ▒▓█    ▄ ▒██░   ▒██  ▀█▄  ▒█░ █ ░█ ",
-        "░▓█▄   ▌▓██▒  ▐▌██▒  ▒   ██▒   ▒▓▓▄ ▄██▒▒██░   ░██▄▄▄▄██ ░█░ █ ░█ ",
-        "░▒████▓ ▒██░   ▓██░▒██████▒▒   ▒ ▓███▀ ░░██████▒▓█   ▓██▒░░██▒██▓ ",
-        " ▒▒▓  ▒ ░ ▒░   ▒ ▒ ▒ ▒▓▒ ▒ ░   ░ ░▒ ▒  ░░ ▒░▓  ░▒▒   ▓▒█░░ ▓░▒ ▒  ",
-        " ░ ▒  ▒ ░ ░░   ░ ▒░░ ░▒  ░ ░     ░  ▒   ░ ░ ▒  ░ ▒   ▒▒ ░  ▒ ░ ░  ",
-        " ░ ░  ░    ░   ░ ░ ░  ░  ░     ░          ░ ░    ░   ▒     ░   ░  ",
-        "   ░             ░       ░     ░ ░          ░  ░     ░  ░    ░    ",
-        " ░                             ░                                  ",
-    };
-
-    /* Red → White gradient */
-    int colors[][3] = {
-        {255, 20,  20},   {255, 60,  50},   {255, 100, 80},
-        {255, 140, 110},  {255, 170, 150},  {255, 195, 180},
-        {255, 215, 210},  {255, 230, 225},  {255, 245, 242},
-        {255, 255, 255},
-    };
-
-    printf("\n");
-    for (int i = 0; i < 10; i++) {
-        set_fg_rgb(colors[i][0], colors[i][1], colors[i][2]);
-        printf("%s\n", ART[i]);
-    }
-    printf(ANSI_RESET "\n");
+    print_banner_to(stdout);
 
     set_fg_rgb(THEME_R4);
     printf("  C Language Agentic Wireformat");
@@ -670,7 +622,7 @@ static int process_message_loop(const char *type, const char *content,
             return -1;
         }
 
-        g_msg_id++;
+        g_msg_id = (g_msg_id + 1) % MAX_MSG_IDS;
         int current_mid = g_msg_id;
 
         char spin_msg[128];
@@ -683,16 +635,15 @@ static int process_message_loop(const char *type, const char *content,
         size_t payload_len = strlen(payload_str);
 
         /* 1. Upload chunks (base32) */
-        int chunk_size = 35;  /* base32(35 bytes) = 56 chars, fits DNS 63-char label limit */
         char b32_buf[256];
         char qname[1024];
         char txt[DNS_MAX_TXT];
 
         int seq = 0;
         int upload_ok = 1;
-        for (size_t i = 0; i < payload_len && upload_ok; i += (size_t)chunk_size) {
+        for (size_t i = 0; i < payload_len && upload_ok; i += UPLOAD_CHUNK_SZ) {
             size_t clen = payload_len - i;
-            if (clen > (size_t)chunk_size) clen = (size_t)chunk_size;
+            if (clen > UPLOAD_CHUNK_SZ) clen = UPLOAD_CHUNK_SZ;
 
             base32_encode((uint8_t *)payload_str + i, clen,
                           b32_buf, sizeof(b32_buf));
@@ -736,7 +687,14 @@ static int process_message_loop(const char *type, const char *content,
 
         /* 3. Poll + download response */
         int down_seq = 0;
-        char full_response[131072] = {0};
+        char *full_response = calloc(RESP_BUF_SIZE, 1);
+        if (!full_response) {
+            spinner_stop(&sp);
+            cJSON_Delete(payload);
+            set_fg_rgb(255, 80, 80);
+            printf("  ✗ Out of memory\n" ANSI_RESET);
+            return -1;
+        }
         size_t resp_pos = 0;
         int poll_count = 0;
 
@@ -746,6 +704,7 @@ static int process_message_loop(const char *type, const char *content,
             if (do_dns_query(qname, txt, sizeof(txt)) < 0) {
                 spinner_stop(&sp);
                 cJSON_Delete(payload);
+                free(full_response);
                 set_fg_rgb(255, 80, 80);
                 printf("  ✗ Download failed at chunk %d\n" ANSI_RESET, down_seq);
                 return -1;
@@ -763,6 +722,7 @@ static int process_message_loop(const char *type, const char *content,
             } else if (strncmp(txt, "ERR:", 4) == 0) {
                 spinner_stop(&sp);
                 cJSON_Delete(payload);
+                free(full_response);
                 set_fg_rgb(255, 80, 80);
                 printf("  ✗ %s\n" ANSI_RESET, txt);
                 return -1;
@@ -773,6 +733,7 @@ static int process_message_loop(const char *type, const char *content,
             if (dlen < 0) {
                 spinner_stop(&sp);
                 cJSON_Delete(payload);
+                free(full_response);
                 set_fg_rgb(255, 80, 80);
                 printf("  ✗ Base64 decode error on chunk %d\n" ANSI_RESET, down_seq);
                 return -1;
@@ -782,7 +743,7 @@ static int process_message_loop(const char *type, const char *content,
                      "Receiving chunk %d...", down_seq);
             spinner_set_message(&sp, spin_msg);
 
-            if (resp_pos + (size_t)dlen < sizeof(full_response)) {
+            if (resp_pos + (size_t)dlen < RESP_BUF_SIZE) {
                 memcpy(full_response + resp_pos, decoded, (size_t)dlen);
                 resp_pos += (size_t)dlen;
             }
@@ -794,11 +755,14 @@ static int process_message_loop(const char *type, const char *content,
 
         if (g_interrupted) {
             cJSON_Delete(payload);
+            free(full_response);
             return -1;
         }
 
         /* 4. Parse JSON response */
         cJSON *resp_json = cJSON_Parse(full_response);
+        free(full_response);
+        full_response = NULL;
         if (!resp_json) {
             cJSON_Delete(payload);
             set_fg_rgb(255, 80, 80);
@@ -971,32 +935,65 @@ static int process_message_loop(const char *type, const char *content,
             } else if (fn && strcmp(fn, "client_list_directory") == 0) {
                 const char *dpath = cJSON_GetStringValue(
                     cJSON_GetObjectItem(args, "path"));
-                if (!dpath) dpath = ".";
+                if (!dpath || !dpath[0]) dpath = ".";
 
                 set_fg_rgb(THEME_DIM);
                 printf("  │ ");
                 set_fg_rgb(THEME_R3);
                 printf("📁 %s\n" ANSI_RESET, dpath);
 
-                char ls_cmd[512];
-                snprintf(ls_cmd, sizeof(ls_cmd),
-                         "ls -la '%s' 2>&1", dpath);
-                FILE *proc = popen(ls_cmd, "r");
-                if (!proc) {
-                    snprintf(tool_result, sizeof(tool_result),
-                             "Error: %s", strerror(errno));
-                } else {
-                    size_t total = 0;
-                    while (total < sizeof(tool_result) - 1) {
-                        size_t n = fread(tool_result + total, 1,
-                                         sizeof(tool_result) - 1 - total, proc);
-                        if (n == 0) break;
-                        total += n;
+                printf("  ");
+                set_fg_rgb(THEME_R4);
+                printf("  Allow listing? " ANSI_RESET);
+                set_fg_rgb(THEME_R2);
+                printf("[Y]es");
+                printf(ANSI_RESET " / ");
+                set_fg_rgb(THEME_DIM);
+                printf("[n]o" ANSI_RESET ": ");
+                fflush(stdout);
+
+                char confirm[32] = {0};
+                if (fgets(confirm, sizeof(confirm), stdin)) {
+                    char *c = confirm;
+                    while (*c == ' ') c++;
+                    if (c[0] == 'y' || c[0] == 'Y' ||
+                        c[0] == '\n' || c[0] == '\0') {
+                        DIR *dir = opendir(dpath);
+                        if (!dir) {
+                            snprintf(tool_result, sizeof(tool_result),
+                                     "Error: %s", strerror(errno));
+                        } else {
+                            struct dirent *ent;
+                            size_t pos = 0;
+                            while ((ent = readdir(dir)) != NULL && pos < sizeof(tool_result) - 300) {
+                                /* Skip . and .. */
+                                if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+                                    continue;
+                                /* Build full path for stat */
+                                char fullpath[1024];
+                                snprintf(fullpath, sizeof(fullpath), "%s/%s", dpath, ent->d_name);
+                                struct stat st;
+                                const char *type_str = "";
+                                if (stat(fullpath, &st) == 0) {
+                                    if (S_ISDIR(st.st_mode)) type_str = "dir  ";
+                                    else                     type_str = "file ";
+                                    pos += (size_t)snprintf(tool_result + pos,
+                                        sizeof(tool_result) - pos,
+                                        "%s %8lld  %s\n",
+                                        type_str, (long long)st.st_size, ent->d_name);
+                                } else {
+                                    pos += (size_t)snprintf(tool_result + pos,
+                                        sizeof(tool_result) - pos,
+                                        "???   %s\n", ent->d_name);
+                                }
+                            }
+                            closedir(dir);
+                            if (pos == 0)
+                                strcpy(tool_result, "(empty directory)");
+                        }
+                    } else {
+                        strcpy(tool_result, "User rejected directory listing.");
                     }
-                    tool_result[total] = '\0';
-                    pclose(proc);
-                    if (strlen(tool_result) > 2000)
-                        strcpy(tool_result + 2000, "\n…[truncated]");
                 }
 
             } else {
@@ -1032,6 +1029,11 @@ static int process_message_loop(const char *type, const char *content,
             cJSON_Delete(resp_json);
 
             payload = cJSON_CreateObject();
+            if (!payload) {
+                set_fg_rgb(255, 80, 80);
+                printf("  ✗ Out of memory\n" ANSI_RESET);
+                return -1;
+            }
             cJSON_AddStringToObject(payload, "type", "tool_response");
             cJSON_AddStringToObject(payload, "content", tool_result);
             if (fn) cJSON_AddStringToObject(payload, "tool_name", fn);
