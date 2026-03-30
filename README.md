@@ -4,6 +4,10 @@
 
 Talk to Gemini through DNS queries. The client encodes your messages as Base32 TXT record lookups, the server decodes them, calls the Gemini API, and sends responses back as chunked TXT records. Supports tool use — the model can run commands on your machine (with approval), read/write files, and list directories.
 
+## Example
+<img width="689" height="384" alt="Screenshot 2026-03-30 at 5 51 52 PM" src="https://github.com/user-attachments/assets/67036c3c-4757-474d-b994-b026a21eb306" />
+
+
 ## Quick Start
 
 ```bash
