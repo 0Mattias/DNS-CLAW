@@ -70,12 +70,12 @@ static void sigint_handler(int sig)
     (void)sig;
     if (g_interrupted) {
         /* Second Ctrl+C = hard exit */
-        printf("\n\033[0m");
-        fflush(stdout);
+        const char rst[] = "\n\033[0m";
+        write(STDOUT_FILENO, rst, sizeof(rst) - 1);
         _exit(130);
     }
     g_interrupted = 1;
-    /* Write a marker so blocking reads unblock */
+    /* Write newline so blocking reads unblock */
     write(STDOUT_FILENO, "\n", 1);
 }
 
@@ -184,6 +184,13 @@ typedef struct {
 static const char *SPINNER_FRAMES[] = {
     "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
 };
+/* Theme colors — warm red/crimson palette matching DNS CLAW banner */
+#define THEME_R1  255, 60, 50     /* Primary accent (hot red) */
+#define THEME_R2  255, 100, 80    /* Secondary accent (warm coral) */
+#define THEME_R3  255, 140, 110   /* Tertiary (salmon) */
+#define THEME_R4  255, 195, 180   /* Light accent (blush) */
+#define THEME_DIM 100, 80, 80     /* Muted red-grey for borders */
+#define THEME_TXT 255, 230, 225   /* Near-white warm text */
 #define SPINNER_FRAME_COUNT 10
 
 static void *spinner_run(void *arg)
@@ -196,10 +203,10 @@ static void *spinner_run(void *arg)
         double elapsed = (now_ms() - s->start_time) / 1000.0;
 
         printf("\r\033[K");
-        set_fg_rgb(190, 60, 255);
+        set_fg_rgb(THEME_R1);
         printf(" %s ", SPINNER_FRAMES[frame % SPINNER_FRAME_COUNT]);
         printf(ANSI_DIM "%s" ANSI_RESET, s->message);
-        set_fg_rgb(80, 80, 80);
+        set_fg_rgb(THEME_DIM);
         printf(" (%.1fs)" ANSI_RESET, elapsed);
         fflush(stdout);
         pthread_mutex_unlock(&s->msg_lock);
@@ -289,7 +296,7 @@ static int init_session(int show_msg)
     g_turn   = 0;
 
     if (show_msg) {
-        set_fg_rgb(0, 255, 200);
+        set_fg_rgb(THEME_R2);
         printf("  ✓ " ANSI_RESET);
         printf(ANSI_DIM "Session: %s\n" ANSI_RESET, g_session_id);
     }
@@ -348,8 +355,8 @@ static void render_inline(const char *p)
         if (p[0] == '`') {
             const char *end = strchr(p + 1, '`');
             if (end) {
-                set_fg_rgb(255, 180, 100);
-                set_bg_rgb(40, 40, 40);
+                set_fg_rgb(THEME_R4);
+                set_bg_rgb(50, 30, 30);
                 typewriter_putchar(' ');
                 for (const char *c = p + 1; c < end; c++)
                     typewriter_putchar(*c);
@@ -366,7 +373,7 @@ static void render_inline(const char *p)
                 const char *url_close = strchr(close + 2, ')');
                 if (url_close) {
                     printf(ANSI_ULINE);
-                    set_fg_rgb(100, 160, 255);
+                    set_fg_rgb(THEME_R3);
                     for (const char *c = p + 1; c < close; c++)
                         typewriter_putchar(*c);
                     printf(ANSI_RESET);
@@ -396,19 +403,19 @@ static void render_markdown(const char *text)
         if (strncmp(buf, "```", 3) == 0) {
             if (!in_code_block) {
                 in_code_block = 1;
-                set_fg_rgb(80, 80, 80);
+                set_fg_rgb(THEME_DIM);
                 printf("  ┌─");
                 if (buf[3]) {
-                    set_fg_rgb(0, 200, 255);
+                    set_fg_rgb(THEME_R2);
                     printf(" %s ", buf + 3);
-                    set_fg_rgb(80, 80, 80);
+                    set_fg_rgb(THEME_DIM);
                 }
                 int pad = term_width() - 10 - (buf[3] ? (int)strlen(buf+3) + 2 : 0);
                 for (int i = 0; i < pad && i < 120; i++) printf("─");
                 printf("┐\n" ANSI_RESET);
             } else {
                 in_code_block = 0;
-                set_fg_rgb(80, 80, 80);
+                set_fg_rgb(THEME_DIM);
                 printf("  └");
                 int pad = term_width() - 6;
                 for (int i = 0; i < pad && i < 120; i++) printf("─");
@@ -419,14 +426,14 @@ static void render_markdown(const char *text)
         }
 
         if (in_code_block) {
-            set_fg_rgb(80, 80, 80);
+            set_fg_rgb(THEME_DIM);
             printf("  │ ");
-            set_fg_rgb(180, 220, 255);
+            set_fg_rgb(THEME_TXT);
             printf("%s", buf);
             /* Pad to right border */
             int pad = term_width() - 8 - (int)strlen(buf);
             for (int i = 0; i < pad; i++) putchar(' ');
-            set_fg_rgb(80, 80, 80);
+            set_fg_rgb(THEME_DIM);
             printf(" │\n" ANSI_RESET);
             line = eol ? eol + 1 : line + llen;
             continue;
@@ -441,24 +448,24 @@ static void render_markdown(const char *text)
 
             if (level == 1) {
                 printf("\n");
-                set_fg_rgb(0, 255, 255);
+                set_fg_rgb(THEME_R1);
                 printf(ANSI_BOLD "  %s\n" ANSI_RESET, heading);
-                set_fg_rgb(0, 255, 255);
+                set_fg_rgb(THEME_R1);
                 printf("  ");
                 for (int i = 0; i < (int)strlen(heading) && i < 120; i++)
                     printf("═");
                 printf("\n" ANSI_RESET);
             } else if (level == 2) {
                 printf("\n");
-                set_fg_rgb(120, 180, 255);
+                set_fg_rgb(THEME_R2);
                 printf(ANSI_BOLD "  %s\n" ANSI_RESET, heading);
-                set_fg_rgb(60, 90, 128);
+                set_fg_rgb(THEME_DIM);
                 printf("  ");
                 for (int i = 0; i < (int)strlen(heading) && i < 120; i++)
                     printf("─");
                 printf("\n" ANSI_RESET);
             } else {
-                set_fg_rgb(180, 140, 255);
+                set_fg_rgb(THEME_R3);
                 printf(ANSI_BOLD "  %s\n" ANSI_RESET, heading);
             }
             line = eol ? eol + 1 : line + llen;
@@ -469,9 +476,9 @@ static void render_markdown(const char *text)
         if (buf[0] == '>') {
             const char *qt = buf + 1;
             while (*qt == ' ') qt++;
-            set_fg_rgb(80, 80, 80);
+            set_fg_rgb(THEME_DIM);
             printf("  ┃ ");
-            set_fg_rgb(180, 180, 180);
+            set_fg_rgb(THEME_R4);
             printf(ANSI_ITALIC);
             typewriter_puts(qt);
             printf(ANSI_RESET "\n");
@@ -488,10 +495,10 @@ static void render_markdown(const char *text)
                 int spaces = 2 + (indent / 2) * 2;
                 for (int i = 0; i < spaces; i++) putchar(' ');
                 if (indent > 0) {
-                    set_fg_rgb(0, 200, 180);
+                    set_fg_rgb(THEME_R3);
                     printf("◦ ");
                 } else {
-                    set_fg_rgb(0, 255, 200);
+                    set_fg_rgb(THEME_R2);
                     printf("• ");
                 }
                 printf(ANSI_RESET);
@@ -513,7 +520,7 @@ static void render_markdown(const char *text)
                 if (*dot == '.' && dot[1] == ' ') {
                     int spaces = 2 + (indent / 2) * 2;
                     for (int i = 0; i < spaces; i++) putchar(' ');
-                    set_fg_rgb(0, 255, 200);
+                    set_fg_rgb(THEME_R2);
                     fwrite(lp, 1, (size_t)(dot - lp + 1), stdout);
                     printf(" " ANSI_RESET);
                     render_inline(dot + 2);
@@ -527,7 +534,7 @@ static void render_markdown(const char *text)
         /* Horizontal rules */
         if (strncmp(buf, "---", 3) == 0 || strncmp(buf, "***", 3) == 0 ||
             strncmp(buf, "___", 3) == 0) {
-            set_fg_rgb(80, 80, 80);
+            set_fg_rgb(THEME_DIM);
             printf("  ");
             int w = term_width() - 4;
             if (w > 120) w = 120;
@@ -585,15 +592,15 @@ static void print_banner(void)
         set_fg_rgb(colors[i][0], colors[i][1], colors[i][2]);
         printf("%s\n", ART[i]);
     }
-    printf(ANSI_RESET);
+    printf(ANSI_RESET "\n");
 
-    set_fg_rgb(120, 120, 120);
+    set_fg_rgb(THEME_R4);
     printf("  C Language Agentic Wireformat");
-    set_fg_rgb(80, 80, 80);
+    set_fg_rgb(THEME_DIM);
     printf("  v%s\n", DNS_CLAW_VERSION);
     printf(ANSI_RESET);
 
-    set_fg_rgb(80, 80, 80);
+    set_fg_rgb(THEME_DIM);
     printf("  ──────────────────────────────────────────────────────────────────\n");
     printf(ANSI_RESET);
 }
@@ -605,9 +612,9 @@ static void print_banner(void)
 static void print_help(void)
 {
     printf("\n");
-    set_fg_rgb(0, 255, 255);
+    set_fg_rgb(THEME_R1);
     printf(ANSI_BOLD "  Commands\n" ANSI_RESET);
-    set_fg_rgb(80, 80, 80);
+    set_fg_rgb(THEME_DIM);
     printf("  ──────────────────────────────────────────\n" ANSI_RESET);
 
     const char *cmds[][2] = {
@@ -618,7 +625,7 @@ static void print_help(void)
         {"/exit",            "Exit the application"},
     };
     for (int i = 0; i < 5; i++) {
-        set_fg_rgb(0, 200, 255);
+        set_fg_rgb(THEME_R2);
         printf("  %-20s", cmds[i][0]);
         printf(ANSI_RESET ANSI_DIM " %s\n" ANSI_RESET, cmds[i][1]);
     }
@@ -676,7 +683,7 @@ static int process_message_loop(const char *type, const char *content,
         size_t payload_len = strlen(payload_str);
 
         /* 1. Upload chunks (base32) */
-        int chunk_size = 50;  /* Increased from 35: fits in DNS labels */
+        int chunk_size = 35;  /* base32(35 bytes) = 56 chars, fits DNS 63-char label limit */
         char b32_buf[256];
         char qname[1024];
         char txt[DNS_MAX_TXT];
@@ -809,12 +816,12 @@ static int process_message_loop(const char *type, const char *content,
             cJSON *args = cJSON_GetObjectItem(resp_json, "tool_args");
 
             printf("\n");
-            set_fg_rgb(243, 156, 18);
+            set_fg_rgb(THEME_R1);
             printf("  ┌ ");
-            set_bg_rgb(243, 156, 18);
+            set_bg_rgb(THEME_R1);
             set_fg_rgb(0, 0, 0);
             printf(ANSI_BOLD " ⚡ Tool Call " ANSI_RESET);
-            set_fg_rgb(243, 156, 18);
+            set_fg_rgb(THEME_R2);
             printf(" ── %s\n" ANSI_RESET, fn ? fn : "unknown");
 
             char tool_result[8192] = {0};
@@ -826,23 +833,23 @@ static int process_message_loop(const char *type, const char *content,
                     snprintf(tool_result, sizeof(tool_result),
                              "Error: Invalid command argument");
                 } else {
-                    set_fg_rgb(80, 80, 80);
+                    set_fg_rgb(THEME_DIM);
                     printf("  │\n");
                     printf("  │ " ANSI_RESET);
-                    set_fg_rgb(255, 180, 100);
-                    set_bg_rgb(40, 40, 40);
+                    set_fg_rgb(THEME_R4);
+                    set_bg_rgb(50, 30, 30);
                     printf(" $ %s " ANSI_RESET, cmd);
                     printf("\n");
-                    set_fg_rgb(80, 80, 80);
+                    set_fg_rgb(THEME_DIM);
                     printf("  │\n" ANSI_RESET);
 
                     printf("  ");
-                    set_fg_rgb(0, 255, 255);
+                    set_fg_rgb(THEME_R4);
                     printf("  Allow? " ANSI_RESET);
-                    set_fg_rgb(0, 200, 0);
+                    set_fg_rgb(THEME_R2);
                     printf("[Y]es");
                     printf(ANSI_RESET " / ");
-                    set_fg_rgb(255, 80, 80);
+                    set_fg_rgb(THEME_DIM);
                     printf("[n]o" ANSI_RESET ": ");
                     fflush(stdout);
 
@@ -875,7 +882,7 @@ static int process_message_loop(const char *type, const char *content,
                                     strcpy(tool_result, "(no output)");
                             }
                         } else {
-                            set_fg_rgb(255, 80, 80);
+                            set_fg_rgb(THEME_R1);
                             printf("  ✗ Rejected\n" ANSI_RESET);
                             strcpy(tool_result,
                                 "User rejected command execution. "
@@ -893,9 +900,9 @@ static int process_message_loop(const char *type, const char *content,
                     snprintf(tool_result, sizeof(tool_result),
                              "Error: Invalid filepath");
                 } else {
-                    set_fg_rgb(80, 80, 80);
+                    set_fg_rgb(THEME_DIM);
                     printf("  │ ");
-                    set_fg_rgb(52, 152, 219);
+                    set_fg_rgb(THEME_R3);
                     printf("📄 %s\n" ANSI_RESET, fpath);
 
                     FILE *fp = fopen(fpath, "r");
@@ -921,19 +928,19 @@ static int process_message_loop(const char *type, const char *content,
                     snprintf(tool_result, sizeof(tool_result),
                              "Error: Missing filepath or content");
                 } else {
-                    set_fg_rgb(80, 80, 80);
+                    set_fg_rgb(THEME_DIM);
                     printf("  │ ");
-                    set_fg_rgb(46, 204, 113);
+                    set_fg_rgb(THEME_R3);
                     printf("📝 Writing: %s (%zu bytes)\n" ANSI_RESET,
                            fpath, strlen(fcontent));
 
                     printf("  ");
-                    set_fg_rgb(0, 255, 255);
+                    set_fg_rgb(THEME_R4);
                     printf("  Allow write? " ANSI_RESET);
-                    set_fg_rgb(0, 200, 0);
+                    set_fg_rgb(THEME_R2);
                     printf("[Y]es");
                     printf(ANSI_RESET " / ");
-                    set_fg_rgb(255, 80, 80);
+                    set_fg_rgb(THEME_DIM);
                     printf("[n]o" ANSI_RESET ": ");
                     fflush(stdout);
 
@@ -966,9 +973,9 @@ static int process_message_loop(const char *type, const char *content,
                     cJSON_GetObjectItem(args, "path"));
                 if (!dpath) dpath = ".";
 
-                set_fg_rgb(80, 80, 80);
+                set_fg_rgb(THEME_DIM);
                 printf("  │ ");
-                set_fg_rgb(155, 89, 182);
+                set_fg_rgb(THEME_R3);
                 printf("📁 %s\n" ANSI_RESET, dpath);
 
                 char ls_cmd[512];
@@ -998,7 +1005,7 @@ static int process_message_loop(const char *type, const char *content,
             }
 
             /* Print result in bordered box */
-            set_fg_rgb(80, 80, 80);
+            set_fg_rgb(THEME_DIM);
             printf("  │\n");
             int w = term_width() - 6;
             if (w > 120) w = 120;
@@ -1008,14 +1015,14 @@ static int process_message_loop(const char *type, const char *content,
                 const char *nl = strchr(rl, '\n');
                 size_t ll = nl ? (size_t)(nl - rl) : strlen(rl);
                 if (ll > (size_t)w) ll = (size_t)w;
-                set_fg_rgb(80, 80, 80);
+                set_fg_rgb(THEME_DIM);
                 printf("  │ " ANSI_RESET ANSI_DIM);
                 fwrite(rl, 1, ll, stdout);
                 printf(ANSI_RESET "\n");
                 rl = nl ? nl + 1 : rl + strlen(rl);
             }
 
-            set_fg_rgb(80, 80, 80);
+            set_fg_rgb(THEME_DIM);
             printf("  └");
             for (int i = 0; i < w; i++) printf("─");
             printf("\n" ANSI_RESET);
@@ -1038,10 +1045,10 @@ static int process_message_loop(const char *type, const char *content,
             double elapsed = (now_ms() - round_start) / 1000.0;
 
             printf("\n");
-            set_bg_rgb(162, 32, 179);
+            set_bg_rgb(THEME_R1);
             set_fg_rgb(255, 255, 255);
             printf(ANSI_BOLD " ✦ Gemini " ANSI_RESET);
-            set_fg_rgb(80, 80, 80);
+            set_fg_rgb(THEME_DIM);
             printf(" %.1fs", elapsed);
             printf(ANSI_RESET "\n");
 
@@ -1196,26 +1203,36 @@ int main(int argc, char **argv)
 
     char input[4096];
 
-    while (!g_interrupted) {
-        g_interrupted = 0; /* reset after interrupted operation */
+    for (;;) {
+        /* Reset interrupt flag at start of each prompt cycle */
+        g_interrupted = 0;
 
         /* Prompt with turn counter */
-        set_fg_rgb(80, 80, 80);
+        set_fg_rgb(THEME_DIM);
         printf(" %d ", g_turn + 1);
-        set_bg_rgb(0, 255, 255);
-        set_fg_rgb(0, 0, 0);
+        set_bg_rgb(THEME_R1);
+        set_fg_rgb(255, 255, 255);
         printf(ANSI_BOLD " You " ANSI_RESET);
-        set_fg_rgb(0, 255, 255);
+        set_fg_rgb(THEME_R2);
         printf(" ❯ " ANSI_RESET);
         fflush(stdout);
 
         if (!fgets(input, sizeof(input), stdin)) {
             if (g_interrupted) {
-                g_interrupted = 0;
-                printf("\n");
-                continue;
+                /* Ctrl+C while at the prompt → clean exit */
+                set_fg_rgb(THEME_DIM);
+                printf("\n  Goodbye.\n" ANSI_RESET);
+                break;
             }
+            /* EOF */
             break;
+        }
+
+        /* If Ctrl+C fired during fgets but fgets still returned a line,
+         * treat it as a cancelled input */
+        if (g_interrupted) {
+            g_interrupted = 0;
+            continue;
         }
 
         /* Trim */
@@ -1228,7 +1245,7 @@ int main(int argc, char **argv)
 
         /* ── Commands ──────────────────────────────────────── */
         if (strcmp(text, "/exit") == 0 || strcmp(text, "/quit") == 0) {
-            set_fg_rgb(80, 80, 80);
+            set_fg_rgb(THEME_DIM);
             printf("\n  Goodbye.\n" ANSI_RESET);
             break;
         }
@@ -1244,9 +1261,9 @@ int main(int argc, char **argv)
         }
         if (strcmp(text, "/status") == 0) {
             printf("\n");
-            set_fg_rgb(0, 255, 255);
+            set_fg_rgb(THEME_R1);
             printf(ANSI_BOLD "  Session Status\n" ANSI_RESET);
-            set_fg_rgb(80, 80, 80);
+            set_fg_rgb(THEME_DIM);
             printf("  ──────────────────────────────────────────\n" ANSI_RESET);
             printf("  Session ID:  %s\n", g_session_id);
             printf("  Turn:        %d\n", g_turn);
@@ -1271,7 +1288,7 @@ int main(int argc, char **argv)
                     "SYSTEM: Summarize our conversation, keeping all important "
                     "facts and context, then acknowledge compaction.");
             }
-            set_fg_rgb(190, 60, 255);
+            set_fg_rgb(THEME_R1);
             printf("\n  [Compacting context...]\n" ANSI_RESET);
             text = compact_msg;
         }

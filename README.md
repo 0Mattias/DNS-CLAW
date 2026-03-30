@@ -1,148 +1,137 @@
-# DNS-CLAW 🦀
+# DNS-CLAW
 
-**C Language Agentic Wireformat** — A production-grade, pure C port of [DNS-LLM](https://github.com/0Mattias/DNS-LLM).
+**C Language Agentic Wireformat** — An agentic AI CLI tunneled through DNS, written in pure C.
 
-A complete client-server system that enables secure, agentic interaction with Large Language Models (Gemini) via DNS tunneling. Written from scratch in C11 with zero cloud SDK dependencies — the Gemini REST API is called directly via raw HTTP.
+Talk to Gemini through DNS queries. The client encodes your messages as Base32 TXT record lookups, the server decodes them, calls the Gemini API, and sends responses back as chunked TXT records. Supports tool use — the model can run commands on your machine (with approval), read/write files, and list directories.
 
-```mermaid
-graph LR
-    subgraph Client Binary
-        A[Terminal UI] --> B[DNS Transport Layer]
-        B --> C{Transport Mode}
-        C -->|UDP| D[Raw Socket]
-        C -->|DoT| E[OpenSSL TLS]
-        C -->|DoH| F[libcurl HTTPS]
-    end
+## Quick Start
 
-    subgraph Server Binary
-        G[DNS Handler] --> H[Session Manager]
-        H --> I[Gemini REST Client]
-        I --> J[generativelanguage.googleapis.com]
-    end
+```bash
+# Clone
+git clone https://github.com/0Mattias/DNS-CLAW.git
+cd DNS-CLAW
 
-    D & E & F --> G
+# Configure
+cp .env.example .env
+# Edit .env → paste your Gemini API key
+
+# Build
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+
+# Run server (terminal 1)
+./build/server_bin
+
+# Run client (terminal 2)
+./build/client_bin
 ```
+
+That's it. The client connects to the server over UDP on port 53535 by default — no sudo, no DNS config, no TLS setup needed for local use.
+
+## How It Works
+
+```
+┌─────────────────┐     DNS TXT queries     ┌─────────────────┐     HTTPS     ┌─────────┐
+│  Client (CLI)   │ ◄──────────────────────► │  Server (DNS)   │ ◄───────────► │ Gemini  │
+│                 │   UDP / DoT / DoH        │                 │   REST API    │   API   │
+└─────────────────┘                          └─────────────────┘               └─────────┘
+```
+
+1. Client encodes your message → Base32 → DNS TXT query labels
+2. Server receives the DNS query, decodes the message, calls Gemini
+3. Gemini response → Base64 → chunked TXT record answers
+4. Client polls for response chunks, decodes, and renders with markdown
+
+The protocol is stateful — sessions, multi-turn conversations, and tool call chains all work across the DNS tunnel.
 
 ## Features
 
-- **DNS Tunneling**: Custom stateful protocol using Base32-encoded TXT record queries to bypass DNS size limits.
-- **Agentic Architecture**: Tool-calling (`client_execute_bash`, `client_read_file`), multi-turn conversation state, and autonomous decision-making — all tunneled through DNS.
-- **DNS-over-TLS (DoT)**: Encrypted transport via OpenSSL on port 853.
-- **DNS-over-HTTPS (DoH)**: RFC 8484 compliant HTTPS POST transport on port 443.
-- **Terminal UI**: Gradient ASCII banner, async spinners, ANSI markdown rendering (headings, code blocks, bold, italic, inline code, lists).
-- **Zero SDK Dependencies**: Gemini API called directly via libcurl REST — no Go SDK, no Python, no Node.
-- **Portable C11**: Compiles with `-Wall -Wextra -Wpedantic` with zero warnings. No GNU extensions.
+- **Three transports**: Plain UDP, DNS-over-TLS (DoT), DNS-over-HTTPS (DoH)
+- **Agentic tools**: `client_execute_bash`, `client_read_file`, `client_write_file`, `client_list_directory` — all with user approval prompts
+- **Rich terminal UI**: Gradient ASCII banner, async spinners, full ANSI markdown rendering
+- **One-shot mode**: `./build/client_bin -m "what is 2+2"` for scripting
+- **Pipe support**: `echo "explain this" | ./build/client_bin`
+- **Zero SDK**: No Go, no Python, no Node — just C, libcurl, OpenSSL, and cJSON
 
-## Why C?
+## Dependencies
 
-This is a port of the original [DNS-LLM](https://github.com/0Mattias/DNS-LLM) (written in Go) to pure C. The motivation:
+| Dependency | Purpose | Install |
+|---|---|---|
+| C compiler | clang or gcc | Xcode / build-essential |
+| CMake ≥ 3.14 | Build system | `brew install cmake` |
+| Ninja | Build tool | `brew install ninja` |
+| OpenSSL | TLS (DoT/DoH) | `brew install openssl@3` |
+| libcurl | HTTP transport | `brew install curl` |
+| cJSON | JSON parsing | Auto-fetched by CMake |
 
-- **Smaller binaries**: 54K client, 71K server (vs multi-MB Go binaries)
-- **No runtime**: No garbage collector, no goroutine scheduler — just raw syscalls and pthreads
-- **Full control**: Hand-rolled DNS wire format (RFC 1035), manual TLS, manual HTTP parsing
-- **Prove it can be done**: Building a production-grade agentic AI CLI in C with no SDK
+## Transport Modes
+
+Edit `.env` to switch transports:
+
+| Mode | Config | Port | Notes |
+|---|---|---|---|
+| **UDP** (default) | `USE_DOT=false`, `USE_DOH=false` | 53535 | No TLS, no sudo |
+| **DoT** | `USE_DOT=true` | 853 | Needs certs + sudo |
+| **DoH** | `USE_DOH=true` | 443 | Needs certs + sudo |
+
+For DoT/DoH, generate self-signed certs first:
+```bash
+./generate_certs.sh
+```
+
+## Client Usage
+
+**Interactive mode** (default):
+```bash
+./build/client_bin
+```
+
+**One-shot**:
+```bash
+./build/client_bin -m "list files in my home directory"
+```
+
+**Pipe**:
+```bash
+cat error.log | ./build/client_bin -m "explain this error"
+```
+
+**Flags**:
+| Flag | Description |
+|---|---|
+| `-m <msg>` | One-shot message |
+| `-s <addr>` | Server address |
+| `-p <port>` | Server port |
+| `--no-color` | Disable ANSI colors |
+| `--no-typewriter` | Disable typewriter text effect |
+
+**In-session commands**:
+| Command | Description |
+|---|---|
+| `/help` | Show commands |
+| `/clear` | New chat session |
+| `/compact [focus]` | Compact conversation context |
+| `/status` | Show session info |
+| `/exit` | Quit |
 
 ## Project Structure
 
 ```
-├── CMakeLists.txt           # Build system (CMake + Ninja)
-├── mise.toml                # Tool version management
-├── generate_certs.sh        # Self-signed TLS cert generator
-├── .env.example             # Configuration template
-├── include/
-│   ├── base32.h             # RFC 4648 Base32 (no padding)
-│   ├── base64.h             # RFC 4648 Base64 (standard)
-│   └── dns_proto.h          # DNS wire format + transports
-└── src/
-    ├── common/
-    │   ├── base32.c          # Base32 encoder/decoder
-    │   ├── base64.c          # Base64 encoder/decoder
-    │   └── dns_proto.c       # DNS builder/parser + UDP/DoT/DoH
-    ├── server/
-    │   └── main.c            # Gemini REST client, session mgr, DNS server
-    └── client/
-        └── main.c            # Terminal UI, spinner, markdown, tool exec
+├── src/
+│   ├── client/main.c      # CLI, markdown renderer, tool executor
+│   ├── server/main.c      # DNS server, Gemini API client, session manager
+│   └── common/
+│       ├── dns_proto.c     # DNS wire format + UDP/DoT/DoH transports
+│       ├── base32.c        # RFC 4648 Base32 (DNS label encoding)
+│       └── base64.c        # RFC 4648 Base64 (response encoding)
+├── include/                # Headers
+├── CMakeLists.txt          # Build config
+├── generate_certs.sh       # Self-signed TLS cert generator
+└── .env.example            # Config template
 ```
-
-## Dependencies
-
-- **C compiler** (clang or gcc)
-- **CMake** ≥ 3.14
-- **Ninja** (build tool)
-- **OpenSSL** (TLS for DoT/DoH)
-- **libcurl** (HTTP for DoH client + Gemini API)
-- **cJSON** (auto-fetched via CMake FetchContent)
-
-On macOS with [mise](https://mise.jdx.dev/):
-```bash
-brew install openssl@3 curl
-# cmake and ninja are managed by mise.toml
-```
-
-## Setup
-
-1. **Clone**
-   ```bash
-   git clone https://github.com/0Mattias/DNS-CLAW.git
-   cd DNS-CLAW
-   ```
-
-2. **Configure Environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env → set your GEMINI_API_KEY
-   ```
-
-3. **Generate TLS Certificates** (only for DoT/DoH)
-   ```bash
-   ./generate_certs.sh
-   ```
-
-4. **Build**
-   ```bash
-   mise exec -- cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-   mise exec -- ninja -C build
-   ```
-   
-   Or without mise:
-   ```bash
-   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-   ninja -C build
-   ```
-
-5. **Run**
-
-   Start the server (UDP mode — no sudo needed):
-   ```bash
-   ./build/server_bin
-   ```
-
-   In a separate terminal, start the client:
-   ```bash
-   ./build/client_bin
-   ```
-
-## Transport Modes
-
-| Mode | `.env` Config | Default Port | Sudo? |
-|------|--------------|-------------|-------|
-| UDP (plain) | `USE_DOT=false`, `USE_DOH=false` | 53535 | No |
-| DoT (TLS) | `USE_DOT=true` | 853 | Yes |
-| DoH (HTTPS) | `USE_DOH=true` | 443 | Yes |
-
-## Client Commands
-
-| Command | Description |
-|---------|-------------|
-| `/help` | Show available commands |
-| `/clear`, `/new`, `/reset` | Start a new chat session |
-| `/compact [focus]` | Ask the LLM to summarize and compact context |
-| `/exit`, `/quit` | Exit the application |
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).
 
-## Credits
-
-Port of [DNS-LLM](https://github.com/0Mattias/DNS-LLM) (Go) to C by [@0Mattias](https://github.com/0Mattias).
+Built by [@0Mattias](https://github.com/0Mattias). Port of [DNS-LLM](https://github.com/0Mattias/DNS-LLM) (Go) to C.

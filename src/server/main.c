@@ -110,6 +110,7 @@ typedef struct {
 static session_t   g_sessions[MAX_SESSIONS];
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static atomic_int g_running = 1;
+static int g_server_fd = -1;  /* closed from signal handler to unblock accept/recvfrom */
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Utility
@@ -132,19 +133,19 @@ static void generate_id(char *out, size_t len)
  * Colored Logging
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-#define LOG_CYAN    "\033[36m"
-#define LOG_GREEN   "\033[32m"
-#define LOG_YELLOW  "\033[33m"
-#define LOG_RED     "\033[31m"
-#define LOG_MAGENTA "\033[35m"
-#define LOG_DIM     "\033[2m"
-#define LOG_RESET   "\033[0m"
+/* Theme colors — warm red palette matching DNS CLAW banner */
+#define LOG_R1     "\033[38;2;255;60;50m"    /* Primary accent (hot red) */
+#define LOG_R2     "\033[38;2;255;100;80m"   /* Secondary (warm coral) */
+#define LOG_R3     "\033[38;2;255;140;110m"  /* Tertiary (salmon) */
+#define LOG_R4     "\033[38;2;255;195;180m"  /* Light accent (blush) */
+#define LOG_DIM    "\033[38;2;100;80;80m"    /* Muted red-grey */
+#define LOG_RESET  "\033[0m"
 
 static void log_info(const char *tag, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, LOG_CYAN "[%s]" LOG_RESET " ", tag);
+    fprintf(stderr, LOG_R2 "[%s]" LOG_RESET " ", tag);
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
     va_end(ap);
@@ -154,7 +155,7 @@ static void log_ok(const char *tag, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, LOG_GREEN "[%s]" LOG_RESET " ", tag);
+    fprintf(stderr, LOG_R3 "[%s]" LOG_RESET " ", tag);
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
     va_end(ap);
@@ -164,7 +165,7 @@ static void log_warn(const char *tag, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, LOG_YELLOW "[%s]" LOG_RESET " ", tag);
+    fprintf(stderr, LOG_R4 "[%s]" LOG_RESET " ", tag);
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
     va_end(ap);
@@ -174,7 +175,7 @@ static void log_err(const char *tag, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, LOG_RED "[%s]" LOG_RESET " ", tag);
+    fprintf(stderr, LOG_R1 "[%s]" LOG_RESET " ", tag);
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
     va_end(ap);
@@ -618,20 +619,6 @@ static void *process_llm_thread(void *arg)
                     cJSON *args_copy = cJSON_Duplicate(args, 1);
                     cJSON_AddItemToObject(result_json, "tool_args", args_copy);
                 }
-
-                /* Add model's function call to history */
-                pthread_mutex_lock(&g_lock);
-                cJSON *model_entry = cJSON_CreateObject();
-                cJSON_AddStringToObject(model_entry, "role", "model");
-                cJSON *model_parts = cJSON_CreateArray();
-                cJSON *model_part = cJSON_CreateObject();
-                cJSON *fc_copy = cJSON_Duplicate(fc, 1);
-                cJSON_AddItemToObject(model_part, "functionCall", fc_copy);
-                cJSON_AddItemToArray(model_parts, model_part);
-                cJSON_AddItemToObject(model_entry, "parts", model_parts);
-                cJSON_AddItemToArray(sess->history, model_entry);
-                pthread_mutex_unlock(&g_lock);
-
                 break;
             }
         }
@@ -653,17 +640,18 @@ static void *process_llm_thread(void *arg)
             }
         }
         cJSON_AddStringToObject(result_json, "content", text_buf);
+    }
 
-        /* Add model response to history */
+    /*
+     * Add model response to history — duplicate the entire content object
+     * from the API response to preserve thoughtSignature fields, thinking
+     * parts, and any other metadata. This is required by Gemini 3.x models
+     * for function calling to work correctly.
+     */
+    if (cand_content) {
         pthread_mutex_lock(&g_lock);
-        cJSON *model_entry = cJSON_CreateObject();
-        cJSON_AddStringToObject(model_entry, "role", "model");
-        cJSON *model_parts = cJSON_CreateArray();
-        cJSON *model_part = cJSON_CreateObject();
-        cJSON_AddStringToObject(model_part, "text", text_buf);
-        cJSON_AddItemToArray(model_parts, model_part);
-        cJSON_AddItemToObject(model_entry, "parts", model_parts);
-        cJSON_AddItemToArray(sess->history, model_entry);
+        cJSON *history_entry = cJSON_Duplicate(cand_content, 1);
+        cJSON_AddItemToArray(sess->history, history_entry);
         pthread_mutex_unlock(&g_lock);
     }
 
@@ -933,14 +921,18 @@ static void *udp_server_thread(void *arg)
     }
 
     fprintf(stderr, "[udp] Listening on 0.0.0.0:%d\n", g_config.port);
+    g_server_fd = fd;
 
     uint8_t buf[DNS_MAX_MSG];
-    while (1) {
+    while (g_running) {
         struct sockaddr_in client;
         socklen_t clen = sizeof(client);
         ssize_t n = recvfrom(fd, buf, sizeof(buf), 0,
                              (struct sockaddr *)&client, &clen);
-        if (n <= 0) continue;
+        if (n <= 0) {
+            if (!g_running) break;
+            continue;
+        }
 
         uint8_t resp[DNS_MAX_MSG];
         int rlen = handle_dns_query(buf, (size_t)n, resp, sizeof(resp));
@@ -1037,12 +1029,16 @@ static void *dot_server_thread(void *arg)
     listen(fd, 32);
 
     fprintf(stderr, "[dot] TLS listening on 0.0.0.0:%d\n", g_config.port);
+    g_server_fd = fd;
 
-    while (1) {
+    while (g_running) {
         struct sockaddr_in client;
         socklen_t clen = sizeof(client);
         int cfd = accept(fd, (struct sockaddr *)&client, &clen);
-        if (cfd < 0) continue;
+        if (cfd < 0) {
+            if (!g_running) break;
+            continue;
+        }
 
         SSL *ssl = SSL_new(ctx);
         SSL_set_fd(ssl, cfd);
@@ -1060,6 +1056,7 @@ static void *dot_server_thread(void *arg)
         pthread_create(&tid, NULL, dot_client_thread, dc);
         pthread_detach(tid);
     }
+    SSL_CTX_free(ctx);
     return NULL;
 }
 
@@ -1181,12 +1178,16 @@ static void *doh_server_thread(void *arg)
     listen(fd, 32);
 
     fprintf(stderr, "[doh] HTTPS listening on 0.0.0.0:%d\n", g_config.port);
+    g_server_fd = fd;
 
-    while (1) {
+    while (g_running) {
         struct sockaddr_in client;
         socklen_t clen = sizeof(client);
         int cfd = accept(fd, (struct sockaddr *)&client, &clen);
-        if (cfd < 0) continue;
+        if (cfd < 0) {
+            if (!g_running) break;
+            continue;
+        }
 
         SSL *ssl = SSL_new(ctx);
         SSL_set_fd(ssl, cfd);
@@ -1204,6 +1205,7 @@ static void *doh_server_thread(void *arg)
         pthread_create(&tid, NULL, doh_client_thread, dc);
         pthread_detach(tid);
     }
+    SSL_CTX_free(ctx);
     return NULL;
 }
 
@@ -1215,7 +1217,14 @@ static void sigint_main_handler(int sig)
 {
     (void)sig;
     g_running = 0;
-    fprintf(stderr, "\n" LOG_YELLOW "[server]" LOG_RESET " Shutting down...\n");
+    /* Close the server fd to unblock recvfrom/accept */
+    if (g_server_fd >= 0) {
+        close(g_server_fd);
+        g_server_fd = -1;
+    }
+    /* Use write() — async-signal-safe, unlike fprintf */
+    const char msg[] = "\n\033[33m[server]\033[0m Shutting down...\n";
+    write(STDERR_FILENO, msg, sizeof(msg) - 1);
 }
 
 int main(void)
@@ -1291,7 +1300,8 @@ int main(void)
                 banner_colors[i][0], banner_colors[i][1], banner_colors[i][2],
                 ART[i]);
     }
-    fprintf(stderr, LOG_DIM "  DNS-CLAW Server v1.0.0" LOG_RESET "\n\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, LOG_R4 "  DNS-CLAW Server" LOG_DIM "  v1.0.0" LOG_RESET "\n\n");
 
     log_info("config", "Model:     %s", g_config.model);
     log_info("config", "Transport: %s",
