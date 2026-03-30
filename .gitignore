@@ -1,0 +1,8 @@
+build/
+.cache/
+*.pem
+.env
+*.o
+*.d
+.DS_Store
+reference/
