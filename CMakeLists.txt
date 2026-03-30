@@ -12,11 +12,14 @@ set(CMAKE_C_FLAGS_DEBUG "-g -O0 -fsanitize=address,undefined")
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 
-# cJSON (fetched at configure time)
+# cJSON (fetched at configure time — static only)
 include(FetchContent)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(CJSON_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(CJSON_BUILD_SHARED_AND_STATIC_LIBS OFF CACHE BOOL "" FORCE)
 set(ENABLE_CJSON_TEST OFF CACHE BOOL "" FORCE)
+set(ENABLE_CJSON_UTILS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     cJSON
     GIT_REPOSITORY https://github.com/DaveGamble/cJSON.git
