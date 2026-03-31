@@ -112,9 +112,11 @@ int main(int argc, char **argv)
         if ((env = getenv("DNS_SERVER_ADDR")) && env[0]) {
             strncpy(g_cfg.server_addr, env, sizeof(g_cfg.server_addr) - 1);
         } else if (g_cfg.use_doh) {
-            strcpy(g_cfg.server_addr, "https://127.0.0.1/dns-query");
+            snprintf(g_cfg.server_addr, sizeof(g_cfg.server_addr),
+                     "https://127.0.0.1/dns-query");
         } else {
-            strcpy(g_cfg.server_addr, "127.0.0.1");
+            snprintf(g_cfg.server_addr, sizeof(g_cfg.server_addr),
+                     "127.0.0.1");
         }
     }
 
@@ -263,7 +265,7 @@ int main(int argc, char **argv)
                     "SYSTEM: Summarize our conversation, keeping all important "
                     "context. Acknowledge compaction. Focus on: %s", focus);
             } else {
-                strcpy(compact_msg,
+                snprintf(compact_msg, sizeof(compact_msg),
                     "SYSTEM: Summarize our conversation, keeping all important "
                     "facts and context, then acknowledge compaction.");
             }

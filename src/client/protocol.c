@@ -23,6 +23,17 @@
 #include "client/render.h"
 #include "client/spinner.h"
 
+/* ── Path safety check ────────────────────────────────────────────────────── */
+
+static void warn_suspicious_path(const char *path)
+{
+    if (path[0] == '/' || strstr(path, "..")) {
+        set_fg_rgb(255, 200, 0);
+        printf("  │ ⚠ Path contains '%s' — review carefully\n" ANSI_RESET,
+               path[0] == '/' ? "absolute path" : "..");
+    }
+}
+
 /* ── Global session state ─────────────────────────────────────────────────── */
 
 char       g_session_id[64];
@@ -274,12 +285,9 @@ int process_message_loop(const char *type, const char *content,
         if (tunnel_crypto_enabled() && resp_pos > CRYPTO_OVERHEAD) {
             uint8_t *decrypted = malloc(resp_pos);
             size_t dec_len = 0;
-            if (decrypted &&
+            if (!decrypted ||
                 tunnel_decrypt((uint8_t *)full_response, resp_pos,
-                               decrypted, &dec_len) == 0) {
-                memcpy(full_response, decrypted, dec_len);
-                full_response[dec_len] = '\0';
-            } else {
+                               decrypted, &dec_len) != 0) {
                 free(decrypted);
                 free(full_response);
                 cJSON_Delete(payload);
@@ -287,6 +295,8 @@ int process_message_loop(const char *type, const char *content,
                 printf("  ✗ Decryption failed — PSK mismatch or corrupted data\n" ANSI_RESET);
                 return -1;
             }
+            memcpy(full_response, decrypted, dec_len);
+            full_response[dec_len] = '\0';
             free(decrypted);
         }
 
@@ -374,18 +384,20 @@ int process_message_loop(const char *type, const char *content,
                                     snprintf(tool_result, sizeof(tool_result),
                                              "Command exited with status %d", status);
                                 if (strlen(tool_result) == 0)
-                                    strcpy(tool_result, "(no output)");
+                                    snprintf(tool_result, sizeof(tool_result), "(no output)");
                             }
                         } else {
                             set_fg_rgb(THEME_R1);
                             printf("  ✗ Rejected\n" ANSI_RESET);
-                            strcpy(tool_result,
+                            snprintf(tool_result, sizeof(tool_result),
                                 "User rejected command execution. "
                                 "Ask what they'd like instead.");
                         }
                     }
-                    if (strlen(tool_result) > TOOL_RESULT_SIZE - 16)
-                        strcpy(tool_result + TOOL_RESULT_SIZE - 16, "\n…[truncated]");
+                    if (strlen(tool_result) > TOOL_RESULT_SIZE - 16) {
+                        snprintf(tool_result + TOOL_RESULT_SIZE - 16, 16,
+                                 "\n...[truncated]");
+                    }
                 }
 
             } else if (fn && strcmp(fn, "client_read_file") == 0) {
@@ -399,6 +411,7 @@ int process_message_loop(const char *type, const char *content,
                     printf("  │ ");
                     set_fg_rgb(THEME_R3);
                     printf("📄 %s\n" ANSI_RESET, fpath);
+                    warn_suspicious_path(fpath);
 
                     FILE *fp = fopen(fpath, "r");
                     if (!fp) {
@@ -409,8 +422,10 @@ int process_message_loop(const char *type, const char *content,
                                              sizeof(tool_result) - 1, fp);
                         tool_result[total] = '\0';
                         fclose(fp);
-                        if (strlen(tool_result) > TOOL_RESULT_SIZE - 16)
-                            strcpy(tool_result + TOOL_RESULT_SIZE - 16, "\n…[truncated]");
+                        if (strlen(tool_result) > TOOL_RESULT_SIZE - 16) {
+                            snprintf(tool_result + TOOL_RESULT_SIZE - 16, 16,
+                                     "\n...[truncated]");
+                        }
                     }
                 }
 
@@ -428,6 +443,7 @@ int process_message_loop(const char *type, const char *content,
                     set_fg_rgb(THEME_R3);
                     printf("📝 Writing: %s (%zu bytes)\n" ANSI_RESET,
                            fpath, strlen(fcontent));
+                    warn_suspicious_path(fpath);
 
                     printf("  ");
                     set_fg_rgb(THEME_R4);
@@ -457,7 +473,7 @@ int process_message_loop(const char *type, const char *content,
                                          strlen(fcontent), fpath);
                             }
                         } else {
-                            strcpy(tool_result,
+                            snprintf(tool_result, sizeof(tool_result),
                                 "User rejected file write.");
                         }
                     }
@@ -518,10 +534,10 @@ int process_message_loop(const char *type, const char *content,
                             }
                             closedir(dir);
                             if (pos == 0)
-                                strcpy(tool_result, "(empty directory)");
+                                snprintf(tool_result, sizeof(tool_result), "(empty directory)");
                         }
                     } else {
-                        strcpy(tool_result, "User rejected directory listing.");
+                        snprintf(tool_result, sizeof(tool_result), "User rejected directory listing.");
                     }
                 }
 

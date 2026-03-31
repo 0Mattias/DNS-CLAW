@@ -191,6 +191,12 @@ void *dot_server_thread(void *arg)
         }
 
         dot_client_t *dc = malloc(sizeof(dot_client_t));
+        if (!dc) {
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            close(cfd);
+            continue;
+        }
         dc->ssl = ssl;
         dc->fd = cfd;
 
@@ -352,6 +358,12 @@ void *doh_server_thread(void *arg)
         }
 
         dot_client_t *dc = malloc(sizeof(dot_client_t));
+        if (!dc) {
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            close(cfd);
+            continue;
+        }
         dc->ssl = ssl;
         dc->fd = cfd;
 

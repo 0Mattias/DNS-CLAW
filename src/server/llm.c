@@ -8,6 +8,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <ctype.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -81,7 +82,9 @@ static size_t curl_write_cb(void *ptr, size_t size, size_t nmemb, void *ud)
     size_t total = size * nmemb;
     struct curl_buf *b = (struct curl_buf *)ud;
     if (b->len + total + 1 > b->cap) {
-        size_t newcap = (b->cap + total + 1) * 2;
+        size_t needed = b->cap + total + 1;
+        if (needed > SIZE_MAX / 2) return 0;  /* overflow guard */
+        size_t newcap = needed * 2;
         char *tmp = realloc(b->data, newcap);
         if (!tmp) return 0;
         b->data = tmp;
@@ -858,6 +861,15 @@ void *process_llm_thread(void *arg)
 
     size_t b64_len = base64_encoded_len(encode_len) + 1;
     char *b64_buf = malloc(b64_len);
+    if (!b64_buf) {
+        log_err("llm", "Out of memory for base64 buffer");
+        free(encrypted);
+        free(result_str);
+        pthread_mutex_lock(&g_lock);
+        sess->responses[msg_id].failed = 1;
+        pthread_mutex_unlock(&g_lock);
+        goto done;
+    }
     base64_encode(encode_data, encode_len, b64_buf, b64_len);
     free(encrypted);
     free(result_str);

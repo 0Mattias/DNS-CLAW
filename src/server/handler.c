@@ -179,6 +179,11 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
 
             /* Spawn LLM processing thread */
             llm_task_t *task = malloc(sizeof(llm_task_t));
+            if (!task) {
+                pthread_mutex_unlock(&g_lock);
+                return dns_build_response(qid, qname, DNS_RCODE_SERVFAIL, NULL,
+                                          resp_buf, resp_buf_len);
+            }
             task->sess = sess;
             task->msg_id = mid;
             pthread_t tid;

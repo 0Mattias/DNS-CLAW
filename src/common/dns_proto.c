@@ -257,7 +257,8 @@ int dns_parse_txt_response(const uint8_t *msg, size_t msglen,
         if (rtype == DNS_TYPE_TXT && i == 0) {
             /* TXT RDATA: sequence of length-prefixed strings */
             size_t rdata_end = pos + rdlen;
-            while (pos < rdata_end && pos < msglen) {
+            if (rdata_end > msglen) return -1;  /* malformed: RDATA exceeds packet */
+            while (pos < rdata_end) {
                 uint8_t slen = msg[pos++];
                 if (pos + slen > msglen || pos + slen > rdata_end) return -1;
                 if (txt_pos + slen >= txt_out_len) return -1;
