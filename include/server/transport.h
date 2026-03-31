@@ -5,6 +5,7 @@
 #define CLAW_SERVER_TRANSPORT_H
 
 #include <stdatomic.h>
+#include "server/llm.h"
 
 /* Global shutdown flag and server fd (defined in main.c) */
 extern atomic_int g_running;
@@ -12,6 +13,8 @@ extern int        g_server_fd;
 
 /* Server configuration (defined in main.c) */
 typedef struct {
+    llm_provider_t provider;
+    char provider_name[32];
     char api_key[512];
     char model[128];
     char tls_cert[256];

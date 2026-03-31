@@ -148,8 +148,10 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
                 strncpy(pp->chunks[pp->chunk_count].data, chunk_b32,
                         sizeof(pp->chunks[0].data) - 1);
                 pp->chunk_count++;
+                reply = "ACK";
+            } else {
+                reply = "ERR:OVERFLOW";
             }
-            reply = "ACK";
         }
         pthread_mutex_unlock(&g_lock);
 
