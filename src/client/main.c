@@ -66,6 +66,31 @@ int main(int argc, char **argv)
     load_dotenv(".env");
     load_dotenv("../.env");
 
+    /* ── Config subcommand (before option parsing) ────────────── */
+    if (argc >= 2 && strcmp(argv[1], "config") == 0) {
+        /* Initialize crypto so config_show can report encryption status */
+        const char *psk = getenv("TUNNEL_PSK");
+        tunnel_crypto_init(psk);
+
+        if (argc == 2) {
+            config_show();
+            return 0;
+        }
+        if (strcmp(argv[2], "--edit") == 0) {
+            config_edit();
+            return 0;
+        }
+        if (strcmp(argv[2], "--set") == 0 && argc >= 4) {
+            return config_set(argv[3]);
+        }
+        if (strcmp(argv[2], "--provider") == 0) {
+            return config_provider_interactive();
+        }
+        fprintf(stderr, "Unknown config option: %s\n", argv[2]);
+        print_usage(argv[0]);
+        return 1;
+    }
+
     /* Defaults */
     g_cfg.typewriter = 1;
     char *oneshot_msg = NULL;
@@ -243,6 +268,10 @@ int main(int argc, char **argv)
         }
         if (strcmp(text, "/help") == 0) {
             print_help();
+            continue;
+        }
+        if (strcmp(text, "/config") == 0) {
+            config_show();
             continue;
         }
         if (strcmp(text, "/status") == 0) {

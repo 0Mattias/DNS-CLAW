@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(dns_llm C)
+project(dns_claw C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -43,15 +43,15 @@ find_package(Threads REQUIRED)
 
 # ── Common library ───────────────────────────────────────────────────────────
 
-add_library(dns_llm_common STATIC
+add_library(dnsclaw_common STATIC
     src/common/base32.c
     src/common/base64.c
     src/common/config.c
     src/common/crypto.c
     src/common/dns_proto.c
 )
-target_include_directories(dns_llm_common PUBLIC include)
-target_link_libraries(dns_llm_common PUBLIC
+target_include_directories(dnsclaw_common PUBLIC include)
+target_link_libraries(dnsclaw_common PUBLIC
     CURL::libcurl
     OpenSSL::SSL OpenSSL::Crypto
 )
@@ -67,7 +67,7 @@ add_executable(dnsclaw-server
     src/server/transport.c
 )
 target_link_libraries(dnsclaw-server PRIVATE
-    dns_llm_common
+    dnsclaw_common
     cjson
     Threads::Threads
 )
@@ -83,7 +83,7 @@ add_executable(dnsclaw
     src/client/ui.c
 )
 target_link_libraries(dnsclaw PRIVATE
-    dns_llm_common
+    dnsclaw_common
     cjson
     Threads::Threads
 )

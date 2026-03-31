@@ -17,12 +17,7 @@ cd DNS-CLAW
 ./setup.sh
 ```
 
-The setup script will:
-1. Check dependencies (cmake, openssl, curl)
-2. Ask for your LLM provider and API key
-3. Generate an encryption key (AES-256-GCM)
-4. Choose transport mode (UDP / DoT / DoH)
-5. Build the binaries
+The setup script checks dependencies, asks for your LLM provider/key, generates an encryption key, and builds. Re-run it safely anytime — it skips provider setup if a key already exists (use `--reconfigure` to force).
 
 Then run:
 
@@ -40,7 +35,7 @@ sudo -E ./build/dnsclaw-server
 sudo cmake --install build
 # Now available anywhere:
 sudo -E dnsclaw-server    # terminal 1
-dnsclaw                # terminal 2
+dnsclaw                   # terminal 2
 ```
 
 ## How It Works
@@ -87,8 +82,20 @@ echo "explain this" | dnsclaw    # pipe mode
 | `/help` | Show available commands |
 | `/clear` | Start a new chat session |
 | `/compact [focus]` | Compress conversation context |
+| `/config` | Show current configuration |
 | `/status` | Show session ID, transport, encryption info |
 | `/exit` | Quit |
+
+### `dnsclaw config` — manage settings
+
+View and change settings without editing files manually.
+
+```bash
+dnsclaw config                                     # show current config
+dnsclaw config --edit                              # open config in $EDITOR
+dnsclaw config --set ANTHROPIC_MODEL=claude-sonnet-4-20250514  # set a value
+dnsclaw config --provider                          # interactive provider setup
+```
 
 ### `dnsclaw-server` — the server
 
@@ -98,7 +105,7 @@ DNS server that tunnels LLM requests. Listens for DNS queries, reassembles chunk
 sudo -E dnsclaw-server              # start with .env config
 ```
 
-On first run with no API key configured, the server launches an interactive setup wizard that asks for your provider, API key, and model — then saves the config.
+If no API key is configured, the server prints setup instructions and exits. Use `./setup.sh` or `dnsclaw config --provider` to configure.
 
 The server logs all activity to stderr with colored output:
 ```
@@ -121,27 +128,24 @@ Config is loaded from these locations (first match wins per variable):
 
 Environment variables set in your shell override all `.env` files.
 
+The easiest way to manage settings is `dnsclaw config` — see [config subcommand](#dnsclaw-config--manage-settings) above.
+
 ### Full config reference
 
 ```bash
 # ── LLM Provider ────────────────────────────────────────────────────
-# Set LLM_PROVIDER to explicitly choose (gemini|openai|anthropic|openrouter)
-# Or just set one API key and the server auto-detects.
-# LLM_PROVIDER="gemini"
+# Set one API key — the server auto-detects the provider.
+# Or set LLM_PROVIDER explicitly: gemini | openai | anthropic | openrouter
 
-# Gemini
 GEMINI_API_KEY="your-api-key"
 GEMINI_MODEL="gemini-3.1-pro-preview"
 
-# OpenAI
 # OPENAI_API_KEY="sk-..."
 # OPENAI_MODEL="gpt-5.4"
 
-# Anthropic (Claude)
 # ANTHROPIC_API_KEY="sk-ant-..."
 # ANTHROPIC_MODEL="claude-opus-4-6-20250610"
 
-# OpenRouter (any model — "openrouter/auto" picks the best)
 # OPENROUTER_API_KEY="sk-or-..."
 # OPENROUTER_MODEL="openrouter/auto"
 
@@ -150,17 +154,22 @@ GEMINI_MODEL="gemini-3.1-pro-preview"
 TUNNEL_PSK="your-psk-here"
 
 # Transport mode (pick one or leave both false for plain UDP)
+# Port is auto-detected: UDP=53, DoT=853, DoH=443
 USE_DOT=false
 USE_DOH=false
 
 # Server address
 DNS_SERVER_ADDR=127.0.0.1
-SERVER_PORT=53
 INSECURE_SKIP_VERIFY=true
+
+# SERVER_PORT=53  (only set for non-standard ports; auto-detected from transport)
 
 # TLS certificates (DoT/DoH only)
 TLS_CERT=cert.pem
 TLS_KEY=key.pem
+
+# Custom system prompt (optional — override the default AI persona)
+# SYSTEM_PROMPT="You are a helpful assistant."
 ```
 
 ## Security: Payload-Level Encryption
@@ -255,17 +264,20 @@ If you prefer not to use `setup.sh`:
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
-# Configure
+# Configure (option A: interactive)
+./build/dnsclaw config --provider
+
+# Configure (option B: copy and edit template)
 mkdir -p ~/.config/dnsclaw
 cp .env.example ~/.config/dnsclaw/.env
-# Edit ~/.config/dnsclaw/.env — set your API key and TUNNEL_PSK
+# Edit: set your API key and TUNNEL_PSK
 
 # Generate TLS certs (only for DoT/DoH)
 ./generate_certs.sh
 
 # Run
 sudo -E ./build/dnsclaw-server   # terminal 1
-./build/dnsclaw               # terminal 2
+./build/dnsclaw                  # terminal 2
 ```
 
 ## Troubleshooting
@@ -274,7 +286,7 @@ sudo -E ./build/dnsclaw-server   # terminal 1
 |---|---|---|
 | `Failed to initialize session` | Client can't reach server | Check server is running, ports match, and `DNS_SERVER_ADDR` is correct |
 | `Decryption failed — PSK mismatch` | Different `TUNNEL_PSK` values | Ensure client and server use the same key |
-| `FATAL: No API key found` | Missing API key | Run `setup.sh` or add a key to `~/.config/dnsclaw/.env` |
+| `FATAL: No API key configured` | Missing API key | Run `./setup.sh` or `dnsclaw config --provider` |
 | `bind: Permission denied` | Port 53/443/853 requires root | Run server with `sudo -E` (the `-E` preserves your env) |
 | DoH connection refused | Wrong address format | Use `https://127.0.0.1/dns-query` (full URL with path) |
 | `base32 decode failed` | Corrupted packet or version mismatch | Rebuild both binaries from same source |
