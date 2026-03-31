@@ -15,7 +15,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 #include <curl/curl.h>
@@ -180,105 +179,20 @@ int main(void)
             }
         }
 
-        /* Interactive setup wizard if no key found */
+        /* No API key found — direct user to setup tools */
         if (!provider_found) {
+            log_err("FATAL", "No API key configured.");
             fprintf(stderr, "\n");
-            fprintf(stderr, CLR_R2 "  \xe2\x94\x8c\xe2\x94\x80 No API key found " CLR_DIM
-                "────────────────────────────────────" CLR_RESET "\n");
-            fprintf(stderr, CLR_R2 "  │" CLR_RESET "\n");
-            fprintf(stderr, CLR_R2 "  │" CLR_RESET
-                "  Select a provider:\n");
-            fprintf(stderr, CLR_R2 "  │" CLR_RESET "    " CLR_R3
-                "1)" CLR_RESET " Gemini\n");
-            fprintf(stderr, CLR_R2 "  │" CLR_RESET "    " CLR_R3
-                "2)" CLR_RESET " OpenAI\n");
-            fprintf(stderr, CLR_R2 "  │" CLR_RESET "    " CLR_R3
-                "3)" CLR_RESET " Claude (Anthropic)\n");
-            fprintf(stderr, CLR_R2 "  │" CLR_RESET "    " CLR_R3
-                "4)" CLR_RESET " OpenRouter\n");
-            fprintf(stderr, CLR_R2 "  │" CLR_RESET "\n");
-            fprintf(stderr, CLR_R2 "  │" CLR_RESET "  Choice [1-4]: ");
-            fflush(stderr);
-
-            char choice_buf[16];
-            if (!fgets(choice_buf, sizeof(choice_buf), stdin)) {
-                log_err("FATAL", "No input received");
-                curl_global_cleanup();
-                return 1;
-            }
-            int choice = atoi(choice_buf);
-            if (choice < 1 || choice > 4) {
-                log_err("FATAL", "Invalid choice");
-                curl_global_cleanup();
-                return 1;
-            }
-            int idx = choice - 1;
-            g_config.provider = (llm_provider_t)idx;
-
-            fprintf(stderr, CLR_R2 "  │" CLR_RESET "  Paste your API key: ");
-            fflush(stderr);
-            char key_buf[512];
-            if (!fgets(key_buf, sizeof(key_buf), stdin) ||
-                strlen(key_buf) < 2) {
-                log_err("FATAL", "No API key provided");
-                curl_global_cleanup();
-                return 1;
-            }
-            size_t klen = strlen(key_buf);
-            while (klen > 0 && (key_buf[klen - 1] == '\n' ||
-                   key_buf[klen - 1] == '\r'))
-                key_buf[--klen] = '\0';
-            strncpy(g_config.api_key, key_buf,
-                    sizeof(g_config.api_key) - 1);
-
-            fprintf(stderr, CLR_R2 "  │" CLR_RESET "  Model (enter for %s): ",
-                    PROVIDER_DEFAULT_MODELS[idx]);
-            fflush(stderr);
-            char model_buf[128];
-            if (fgets(model_buf, sizeof(model_buf), stdin)) {
-                size_t mlen = strlen(model_buf);
-                while (mlen > 0 && (model_buf[mlen - 1] == '\n' ||
-                       model_buf[mlen - 1] == '\r'))
-                    model_buf[--mlen] = '\0';
-                if (mlen > 0)
-                    strncpy(g_config.model, model_buf,
-                            sizeof(g_config.model) - 1);
-                else
-                    strncpy(g_config.model, PROVIDER_DEFAULT_MODELS[idx],
-                            sizeof(g_config.model) - 1);
-            } else {
-                strncpy(g_config.model, PROVIDER_DEFAULT_MODELS[idx],
-                        sizeof(g_config.model) - 1);
-            }
-
-            /* Save to ~/.config/dnsclaw/.env (create dir if needed) */
-            {
-                char env_dir[512] = {0};
-                char env_path[512] = ".env";
-                const char *h = getenv("HOME");
-                if (h) {
-                    snprintf(env_dir, sizeof(env_dir),
-                             "%s/.config/dnsclaw", h);
-                    mkdir(env_dir, 0700);
-                    snprintf(env_path, sizeof(env_path),
-                             "%s/.config/dnsclaw/.env", h);
-                }
-                FILE *envf = fopen(env_path, "a");
-                if (envf) {
-                    fprintf(envf, "\n# Added by DNS-CLAW setup wizard\n");
-                    fprintf(envf, "%s=\"%s\"\n",
-                            KEY_ENVS[idx], g_config.api_key);
-                    fprintf(envf, "%s=\"%s\"\n",
-                            MODEL_ENVS[idx], g_config.model);
-                    fclose(envf);
-                    fprintf(stderr, CLR_R2 "  │" CLR_RESET "\n");
-                    fprintf(stderr, CLR_R2 "  │  " CLR_R3
-                        "\xe2\x9c\x93" CLR_RESET " Saved to %s\n", env_path);
-                }
-            }
-            fprintf(stderr, CLR_R2 "  \xe2\x94\x94" CLR_DIM
-                "───────────────────────────────────────────────"
-                CLR_RESET "\n\n");
+            fprintf(stderr, "  To configure a provider, run one of:\n");
+            fprintf(stderr, "    " CLR_R3 "./setup.sh" CLR_RESET
+                "                    (first-time setup)\n");
+            fprintf(stderr, "    " CLR_R3 "dnsclaw config --provider" CLR_RESET
+                "     (interactive provider setup)\n");
+            fprintf(stderr, "    " CLR_R3 "dnsclaw config --edit" CLR_RESET
+                "         (edit config file directly)\n");
+            fprintf(stderr, "\n");
+            curl_global_cleanup();
+            return 1;
         }
 
         strncpy(g_config.provider_name,
@@ -335,6 +249,11 @@ int main(void)
     log_info("config", "Encryption: %s",
              tunnel_crypto_enabled() ? "AES-256-GCM (PSK)" : "none (plaintext)");
     log_info("config", "Port:      %d", g_config.port);
+    {
+        const char *custom_sp = getenv("SYSTEM_PROMPT");
+        if (custom_sp && custom_sp[0])
+            log_info("config", "Prompt:    (custom, %zu chars)", strlen(custom_sp));
+    }
     fprintf(stderr, "\n");
 
     /* Start session reaper */

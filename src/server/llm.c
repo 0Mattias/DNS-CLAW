@@ -36,12 +36,19 @@ const char *PROVIDER_DEFAULT_MODELS[] = {
     "openrouter/auto"
 };
 
-static const char *SYSTEM_PROMPT =
+static const char *DEFAULT_SYSTEM_PROMPT =
     "You are a remote, DNS-based AI agent. You have the ability to execute "
     "terminal commands on the user's machine by calling the client_execute_bash "
     "tool. You can also read files using client_read_file. When the user asks "
     "you to do something to their local system, utilize your tools. Format all "
     "outputs nicely using markdown.";
+
+static const char *get_system_prompt(void)
+{
+    const char *custom = getenv("SYSTEM_PROMPT");
+    if (custom && custom[0]) return custom;
+    return DEFAULT_SYSTEM_PROMPT;
+}
 
 /* ── Tool definition table ───────────────────────────────────────────────── */
 
@@ -368,7 +375,7 @@ static cJSON *gemini_generate_content(cJSON *history)
     cJSON *sys = cJSON_CreateObject();
     cJSON *sp = cJSON_CreateArray();
     cJSON *spt = cJSON_CreateObject();
-    cJSON_AddStringToObject(spt, "text", SYSTEM_PROMPT);
+    cJSON_AddStringToObject(spt, "text", get_system_prompt());
     cJSON_AddItemToArray(sp, spt);
     cJSON_AddItemToObject(sys, "parts", sp);
     cJSON_AddItemToObject(body, "systemInstruction", sys);
@@ -403,7 +410,7 @@ static cJSON *openai_generate_content(cJSON *history)
     cJSON *messages = cJSON_CreateArray();
     cJSON *sys_msg = cJSON_CreateObject();
     cJSON_AddStringToObject(sys_msg, "role", "system");
-    cJSON_AddStringToObject(sys_msg, "content", SYSTEM_PROMPT);
+    cJSON_AddStringToObject(sys_msg, "content", get_system_prompt());
     cJSON_AddItemToArray(messages, sys_msg);
 
     cJSON *h;
@@ -433,7 +440,7 @@ static cJSON *anthropic_generate_content(cJSON *history)
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", g_config.model);
     cJSON_AddNumberToObject(body, "max_tokens", 8192);
-    cJSON_AddStringToObject(body, "system", SYSTEM_PROMPT);
+    cJSON_AddStringToObject(body, "system", get_system_prompt());
 
     cJSON *messages = cJSON_CreateArray();
     cJSON *h;
@@ -467,7 +474,7 @@ static cJSON *openrouter_generate_content(cJSON *history)
     cJSON *messages = cJSON_CreateArray();
     cJSON *sys_msg = cJSON_CreateObject();
     cJSON_AddStringToObject(sys_msg, "role", "system");
-    cJSON_AddStringToObject(sys_msg, "content", SYSTEM_PROMPT);
+    cJSON_AddStringToObject(sys_msg, "content", get_system_prompt());
     cJSON_AddItemToArray(messages, sys_msg);
 
     cJSON *h;
