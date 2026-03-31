@@ -147,6 +147,7 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
                 pp->chunks[pp->chunk_count].seq = seq;
                 strncpy(pp->chunks[pp->chunk_count].data, chunk_b32,
                         sizeof(pp->chunks[0].data) - 1);
+                pp->chunks[pp->chunk_count].data[sizeof(pp->chunks[0].data) - 1] = '\0';
                 pp->chunk_count++;
                 reply = "ACK";
             } else {
@@ -177,13 +178,16 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
             memset(&sess->responses[mid], 0, sizeof(msg_response_t));
             reply = "ACK";
 
-            /* Spawn LLM processing thread */
+            /* Spawn LLM processing thread.
+             * Increment busy BEFORE spawning so the reaper can't destroy
+             * the session between thread start and the thread's first lock. */
             llm_task_t *task = malloc(sizeof(llm_task_t));
             if (!task) {
                 pthread_mutex_unlock(&g_lock);
                 return dns_build_response(qid, qname, DNS_RCODE_SERVFAIL, NULL,
                                           resp_buf, resp_buf_len);
             }
+            sess->busy++;
             task->sess = sess;
             task->msg_id = mid;
             pthread_t tid;

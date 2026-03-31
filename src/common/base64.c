@@ -74,6 +74,7 @@ int base64_encode(const uint8_t *src, size_t src_len,
 
 int base64_decode(const char *src, uint8_t *dst, size_t dst_len)
 {
+    if (!src || !src[0]) return 0;  /* empty input → 0 bytes decoded */
     size_t slen = strlen(src);
     /* Strip trailing '=' */
     while (slen > 0 && src[slen - 1] == '=') slen--;

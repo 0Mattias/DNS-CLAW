@@ -229,9 +229,15 @@ int dns_parse_txt_response(const uint8_t *msg, size_t msglen,
         /* Skip QNAME */
         while (pos < msglen) {
             if (msg[pos] == 0) { pos++; break; }
-            if ((msg[pos] & 0xC0) == 0xC0) { pos += 2; break; }
-            pos += 1 + msg[pos];
+            if ((msg[pos] & 0xC0) == 0xC0) {
+                if (pos + 1 >= msglen) return -1;
+                pos += 2; break;
+            }
+            size_t label_len = msg[pos];
+            if (pos + 1 + label_len > msglen) return -1;
+            pos += 1 + label_len;
         }
+        if (pos + 4 > msglen) return -1;
         pos += 4; /* QTYPE + QCLASS */
     }
 

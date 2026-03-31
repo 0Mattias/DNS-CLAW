@@ -4,5 +4,12 @@ build/
 .env
 *.o
 *.d
+*.a
+*.so
+*.dylib
+*.gcda
+*.gcno
 .DS_Store
 reference/
+CMakeUserPresets.json
+compile_commands.json

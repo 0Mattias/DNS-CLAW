@@ -810,10 +810,8 @@ void *process_llm_thread(void *arg)
     int msg_id = task->msg_id;
     free(task);
 
-    /* Mark session as busy so the reaper won't destroy it mid-flight */
-    pthread_mutex_lock(&g_lock);
-    sess->busy++;
-    pthread_mutex_unlock(&g_lock);
+    /* sess->busy was already incremented by handler.c before thread spawn,
+     * so the reaper can't destroy this session while we're running. */
 
     /* 1. Reassemble uploaded chunks */
     pthread_mutex_lock(&g_lock);
@@ -969,6 +967,10 @@ void *process_llm_thread(void *arg)
         size_t clen = b64_total - i;
         if (clen > CHUNK_SIZE) clen = CHUNK_SIZE;
         mr->chunks[nchunks] = malloc(clen + 1);
+        if (!mr->chunks[nchunks]) {
+            log_err("llm", "Out of memory allocating response chunk");
+            break;
+        }
         memcpy(mr->chunks[nchunks], b64_buf + i, clen);
         mr->chunks[nchunks][clen] = '\0';
         nchunks++;
