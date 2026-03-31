@@ -132,11 +132,13 @@ int main(void)
                         g_config.provider = (llm_provider_t)i;
                         strncpy(g_config.api_key, k,
                                 sizeof(g_config.api_key) - 1);
+                        g_config.api_key[sizeof(g_config.api_key) - 1] = '\0';
                         free(k);
                         char *m = load_env(MODEL_ENVS[i],
                                            PROVIDER_DEFAULT_MODELS[i]);
                         strncpy(g_config.model, m,
                                 sizeof(g_config.model) - 1);
+                        g_config.model[sizeof(g_config.model) - 1] = '\0';
                         free(m);
                         provider_found = 1;
                     } else {
@@ -198,6 +200,7 @@ int main(void)
         strncpy(g_config.provider_name,
                 PROVIDER_NAMES[g_config.provider],
                 sizeof(g_config.provider_name) - 1);
+        g_config.provider_name[sizeof(g_config.provider_name) - 1] = '\0';
     }
 
     /* ── Standard config ─────────────────────────────────────────────────── */
@@ -220,10 +223,12 @@ int main(void)
 
     char *cert = load_env("TLS_CERT", "cert.pem");
     strncpy(g_config.tls_cert, cert, sizeof(g_config.tls_cert) - 1);
+    g_config.tls_cert[sizeof(g_config.tls_cert) - 1] = '\0';
     free(cert);
 
     char *key = load_env("TLS_KEY", "key.pem");
     strncpy(g_config.tls_key, key, sizeof(g_config.tls_key) - 1);
+    g_config.tls_key[sizeof(g_config.tls_key) - 1] = '\0';
     free(key);
 
     /* Initialize payload encryption from PSK */

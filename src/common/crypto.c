@@ -53,6 +53,12 @@ static int hkdf_sha256(const uint8_t *salt, size_t salt_len,
         return -1;
 
     memcpy(okm, t1, okm_len);
+
+    /* Securely erase intermediate key material */
+    OPENSSL_cleanse(prk, sizeof(prk));
+    OPENSSL_cleanse(expand_input, sizeof(expand_input));
+    OPENSSL_cleanse(t1, sizeof(t1));
+
     return 0;
 }
 

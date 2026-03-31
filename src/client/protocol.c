@@ -23,6 +23,38 @@
 #include "client/render.h"
 #include "client/spinner.h"
 
+/* ── Shell escaping ──────────────────────────────────────────────────────── */
+
+/*
+ * Escape a string for safe embedding in a single-quoted shell argument.
+ * Strategy: wrap in single quotes, and escape any embedded single quotes
+ * as '\'' (end quote, escaped quote, resume quote).
+ * Caller must free() the returned string.
+ */
+static char *shell_escape(const char *s)
+{
+    if (!s) return NULL;
+    /* Worst case: every char is a single quote → 4x expansion + 2 outer quotes + NUL */
+    size_t len = strlen(s);
+    char *out = malloc(len * 4 + 3);
+    if (!out) return NULL;
+    size_t j = 0;
+    out[j++] = '\'';
+    for (size_t i = 0; i < len; i++) {
+        if (s[i] == '\'') {
+            out[j++] = '\''; /* end current quote */
+            out[j++] = '\\';
+            out[j++] = '\''; /* escaped literal quote */
+            out[j++] = '\''; /* resume quoting */
+        } else {
+            out[j++] = s[i];
+        }
+    }
+    out[j++] = '\'';
+    out[j] = '\0';
+    return out;
+}
+
 /* ── Path safety check ────────────────────────────────────────────────────── */
 
 static void warn_suspicious_path(const char *path)
@@ -596,6 +628,10 @@ int process_message_loop(const char *type, const char *content,
                                                 size_t old_len = strlen(old_str);
                                                 size_t new_len = strlen(new_str);
                                                 size_t prefix_len = (size_t)(match - content);
+                                                if (prefix_len + old_len > rd) {
+                                                    snprintf(tool_result, sizeof(tool_result),
+                                                             "Error: string match exceeds file bounds");
+                                                } else {
                                                 size_t suffix_len = rd - prefix_len - old_len;
                                                 size_t new_size = prefix_len + new_len + suffix_len;
                                                 char *result = malloc(new_size + 1);
@@ -621,6 +657,7 @@ int process_message_loop(const char *type, const char *content,
                                                                  fpath, rd, new_size);
                                                     }
                                                     free(result);
+                                                }
                                                 }
                                             }
                                         }
@@ -654,16 +691,26 @@ int process_message_loop(const char *type, const char *content,
                     if (include) printf(" (%s)", include);
                     printf("\n" ANSI_RESET);
 
+                    char *esc_pattern = shell_escape(pattern);
+                    char *esc_path = shell_escape(spath);
+                    char *esc_include = include ? shell_escape(include) : NULL;
+                    if (!esc_pattern || !esc_path || (include && !esc_include)) {
+                        free(esc_pattern); free(esc_path); free(esc_include);
+                        snprintf(tool_result, sizeof(tool_result),
+                                 "Error: Out of memory");
+                        goto search_done;
+                    }
                     char cmd[4096];
                     if (include) {
                         snprintf(cmd, sizeof(cmd),
-                                 "grep -rn --include='%s' -- '%s' '%s' 2>&1 | head -200",
-                                 include, pattern, spath);
+                                 "grep -rn --include=%s -- %s %s 2>&1 | head -200",
+                                 esc_include, esc_pattern, esc_path);
                     } else {
                         snprintf(cmd, sizeof(cmd),
-                                 "grep -rn -- '%s' '%s' 2>&1 | head -200",
-                                 pattern, spath);
+                                 "grep -rn -- %s %s 2>&1 | head -200",
+                                 esc_pattern, esc_path);
                     }
+                    free(esc_pattern); free(esc_path); free(esc_include);
                     FILE *proc = popen(cmd, "r");
                     if (!proc) {
                         snprintf(tool_result, sizeof(tool_result),
@@ -683,6 +730,7 @@ int process_message_loop(const char *type, const char *content,
                                      "(no matches)");
                     }
                 }
+                search_done: ;
 
             } else if (fn && strcmp(fn, "client_fetch_url") == 0) {
                 const char *url = cJSON_GetStringValue(
@@ -696,10 +744,17 @@ int process_message_loop(const char *type, const char *content,
                     set_fg_rgb(THEME_R3);
                     printf("🌐 %s\n" ANSI_RESET, url);
 
+                    char *esc_url = shell_escape(url);
+                    if (!esc_url) {
+                        snprintf(tool_result, sizeof(tool_result),
+                                 "Error: Out of memory");
+                        goto fetch_done;
+                    }
                     char cmd[4096];
                     snprintf(cmd, sizeof(cmd),
-                             "curl -sL --max-time 15 --max-filesize 1048576 '%s' 2>&1",
-                             url);
+                             "curl -sL --max-time 15 --max-filesize 1048576 %s 2>&1",
+                             esc_url);
+                    free(esc_url);
                     FILE *proc = popen(cmd, "r");
                     if (!proc) {
                         snprintf(tool_result, sizeof(tool_result),
@@ -719,6 +774,7 @@ int process_message_loop(const char *type, const char *content,
                                      "(empty response)");
                     }
                 }
+                fetch_done: ;
 
             } else {
                 snprintf(tool_result, sizeof(tool_result),

@@ -5,10 +5,27 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Production flags
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wpedantic -Wstrict-prototypes -Wformat=2 -Wformat-security")
-set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG -fstack-protector-strong")
+# Default to Release if not specified
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# Compiler warnings
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wpedantic -Wstrict-prototypes -Wshadow -Wformat=2 -Wformat-security -Werror=format-security")
+
+# Hardened release flags
+set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE")
+
+# Debug: ASan + UBSan
 set(CMAKE_C_FLAGS_DEBUG "-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer")
+
+# ThreadSanitizer build type (use: cmake -DCMAKE_BUILD_TYPE=TSan)
+set(CMAKE_C_FLAGS_TSAN "-g -O1 -fsanitize=thread -fno-omit-frame-pointer")
+
+# Linker hardening (Linux only; macOS doesn't support these)
+if(NOT APPLE)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,relro,-z,now -pie")
+endif()
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
 
@@ -90,6 +107,26 @@ target_link_libraries(dnsclaw PRIVATE
     Threads::Threads
 )
 target_include_directories(dnsclaw PRIVATE ${cJSON_SOURCE_DIR})
+
+# ── Tests ────────────────────────────────────────────────────────────────────
+
+enable_testing()
+
+add_executable(test_base64 tests/test_base64.c)
+target_link_libraries(test_base64 PRIVATE dnsclaw_common)
+add_test(NAME base64 COMMAND test_base64)
+
+add_executable(test_base32 tests/test_base32.c)
+target_link_libraries(test_base32 PRIVATE dnsclaw_common)
+add_test(NAME base32 COMMAND test_base32)
+
+add_executable(test_crypto tests/test_crypto.c)
+target_link_libraries(test_crypto PRIVATE dnsclaw_common)
+add_test(NAME crypto COMMAND test_crypto)
+
+add_executable(test_dns_proto tests/test_dns_proto.c)
+target_link_libraries(test_dns_proto PRIVATE dnsclaw_common)
+add_test(NAME dns_proto COMMAND test_dns_proto)
 
 # ── Install ──────────────────────────────────────────────────────────────────
 
