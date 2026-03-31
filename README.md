@@ -2,91 +2,200 @@
 
 **C Language Agentic Wireformat** — An agentic AI CLI tunneled through DNS, written in pure C.
 
-Talk to Gemini through DNS queries. The client encodes your messages as Base32 TXT record lookups, the server decodes them, calls the Gemini API, and sends responses back as chunked TXT records. Supports tool use — the model can run commands on your machine (with approval), read/write files, and list directories.
+Talk to LLMs through DNS queries. The client encodes your messages as Base32 TXT record lookups, the server decodes them, calls your LLM provider, and sends responses back as chunked TXT records. Supports tool use — the model can run commands on your machine (with approval), read/write files, and list directories.
+
+Supports **Gemini**, **OpenAI**, **Claude (Anthropic)**, and **OpenRouter**.
 
 ## Example
-<img width="784" height="447" alt="Screenshot 2026-03-30 at 10 59 37 PM" src="https://github.com/user-attachments/assets/9e8b62b3-c633-474d-852c-9ad3fd08cd63" />
-
-
+<img width="784" height="447" alt="Screenshot 2026-03-30 at 10 59 37 PM" src="https://github.com/user-attachments/assets/9e8b62b3-c633-474d-852c-9ad3fd08cd63" />
 
 ## Quick Start
 
 ```bash
-# Clone
 git clone https://github.com/0Mattias/DNS-CLAW.git
 cd DNS-CLAW
+./setup.sh
+```
 
-# Configure
-cp .env.example .env
-# Edit .env:
-#   1. Paste your Gemini API key
-#   2. Generate and set a TUNNEL_PSK (see below)
+The setup script will:
+1. Check dependencies (cmake, openssl, curl)
+2. Ask for your LLM provider and API key
+3. Generate an encryption key (AES-256-GCM)
+4. Choose transport mode (UDP / DoT / DoH)
+5. Build the binaries
 
-# Build
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+Then run:
 
-# Generate TLS certs (only needed for DoT/DoH)
-./generate_certs.sh
+```bash
+# Terminal 1 — start the server (port 53 requires sudo)
+sudo ./build/dnsclaw-server
 
-# Run server (terminal 1 — port 53 requires sudo)
-sudo ./build/server_bin
+# Terminal 2 — start chatting
+./build/dnsclaw
+```
 
-# Run client (terminal 2)
-./build/client_bin
+### Install system-wide (optional)
+
+```bash
+sudo cmake --install build
+# Now available anywhere:
+sudo dnsclaw-server    # terminal 1
+dnsclaw                # terminal 2
 ```
 
 ## How It Works
 
 ```
 ┌─────────────────┐     DNS TXT queries     ┌─────────────────┐     HTTPS     ┌─────────┐
-│  Client (CLI)   │ ◄──────────────────────► │  Server (DNS)   │ ◄───────────► │ Gemini  │
-│                 │   UDP / DoT / DoH        │                 │   REST API    │   API   │
+│  dnsclaw (CLI)  │ <────────────────────> │  dnsclaw-server │ <───────────> │ LLM API │
+│                 │   UDP / DoT / DoH        │                 │   REST API    │         │
 └─────────────────┘                          └─────────────────┘               └─────────┘
 ```
 
-1. Client encrypts your message (AES-256-GCM) → Base32 encodes → DNS TXT query labels
-2. Server receives the DNS query, Base32 decodes, decrypts, calls Gemini
-3. Gemini response → AES-256-GCM encrypted → Base64 encoded → chunked TXT records
+1. Client encrypts your message (AES-256-GCM) -> Base32 encodes -> DNS TXT query labels
+2. Server receives the DNS query, Base32 decodes, decrypts, calls your LLM provider
+3. LLM response -> AES-256-GCM encrypted -> Base64 encoded -> chunked TXT records
 4. Client polls for chunks, Base64 decodes, decrypts, renders markdown to terminal
 
 The protocol is stateful — sessions, multi-turn conversations, and tool call chains all work across the DNS tunnel.
 
+## Commands
+
+### `dnsclaw` — the client
+
+Interactive terminal chat client that communicates with `dnsclaw-server` via DNS tunneling.
+
+```bash
+dnsclaw                          # interactive REPL
+dnsclaw -m "what is 2+2"         # one-shot mode
+echo "explain this" | dnsclaw    # pipe mode
+```
+
+| Flag | Description |
+|---|---|
+| `-m <msg>` | One-shot message (print response and exit) |
+| `-s <addr>` | Server address (overrides .env) |
+| `-p <port>` | Server port (overrides .env) |
+| `--no-color` | Disable ANSI colors |
+| `--no-typewriter` | Disable typewriter text effect |
+| `-v` | Print version |
+
+**In-session commands:**
+
+| Command | Description |
+|---|---|
+| `/help` | Show available commands |
+| `/clear` | Start a new chat session |
+| `/compact [focus]` | Compress conversation context |
+| `/status` | Show session ID, transport, encryption info |
+| `/exit` | Quit |
+
+### `dnsclaw-server` — the server
+
+DNS server that tunnels LLM requests. Listens for DNS queries, reassembles chunked messages, calls the configured LLM API, and returns responses as TXT records.
+
+```bash
+sudo dnsclaw-server              # start with .env config
+```
+
+On first run with no API key configured, the server launches an interactive setup wizard that asks for your provider, API key, and model — then saves the config.
+
+The server logs all activity to stderr with colored output:
+```
+[config] Provider:  Claude
+[config] Model:     claude-sonnet-4-20250514
+[config] Transport: UDP (plain)
+[config] Encryption: AES-256-GCM (PSK)
+[config] Port:      53
+[init]   New session: a1b2c3d4
+[llm]    Processing sid=a1b2c3d4 mid=1 type=user
+```
+
+## Configuration
+
+Config is loaded from these locations (first match wins per variable):
+
+1. `~/.config/dnsclaw/.env` — user config (created by `setup.sh`)
+2. `./.env` — project-local config (for development)
+3. `../.env` — parent directory (legacy)
+
+Environment variables set in your shell override all `.env` files.
+
+### Full config reference
+
+```bash
+# ── LLM Provider ────────────────────────────────────────────────────
+# Set LLM_PROVIDER to explicitly choose (gemini|openai|anthropic|openrouter)
+# Or just set one API key and the server auto-detects.
+# LLM_PROVIDER="gemini"
+
+# Gemini
+GEMINI_API_KEY="your-api-key"
+GEMINI_MODEL="gemini-2.5-flash"
+
+# OpenAI
+# OPENAI_API_KEY="sk-..."
+# OPENAI_MODEL="gpt-4o"
+
+# Anthropic (Claude)
+# ANTHROPIC_API_KEY="sk-ant-..."
+# ANTHROPIC_MODEL="claude-sonnet-4-20250514"
+
+# OpenRouter (any model via unified API)
+# OPENROUTER_API_KEY="sk-or-..."
+# OPENROUTER_MODEL="anthropic/claude-sonnet-4-20250514"
+
+# Payload Encryption (recommended)
+# Generate with: openssl rand -base64 32
+TUNNEL_PSK="your-psk-here"
+
+# Transport mode (pick one or leave both false for plain UDP)
+USE_DOT=false
+USE_DOH=false
+
+# Server address
+DNS_SERVER_ADDR=127.0.0.1
+SERVER_PORT=53
+INSECURE_SKIP_VERIFY=true
+
+# TLS certificates (DoT/DoH only)
+TLS_CERT=cert.pem
+TLS_KEY=key.pem
+```
+
 ## Security: Payload-Level Encryption
 
-DNS-CLAW uses **AES-256-GCM** payload encryption with a pre-shared key (PSK) to defeat deep packet inspection (DPI). Instead of encrypting the connection (which changes packet shape and alerts firewalls), we encrypt the data itself before it touches the DNS protocol.
+DNS-CLAW uses **AES-256-GCM** payload encryption with a pre-shared key (PSK). Instead of encrypting the connection (which changes packet shape and alerts firewalls), we encrypt the data itself before it touches the DNS protocol.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                                                                  │
 │  Your prompt: "What is my IP?"                                   │
-│       ↓ AES-256-GCM encrypt with TUNNEL_PSK                     │
-│  Ciphertext: [magic:0xCE01][nonce:12B][encrypted][tag:16B]      │
-│       ↓ Base32 encode                                            │
+│       | AES-256-GCM encrypt with TUNNEL_PSK                      │
+│  Ciphertext: [magic:0xCE01][nonce:12B][encrypted][tag:16B]       │
+│       | Base32 encode                                             │
 │  DNS query: gizqwerty4abc.0.up.3.a1b2c3.llm.local.              │
 │                                                                  │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │  Firewall sees: standard plaintext DNS query ✓             │  │
-│  │  Snooper sees:  random noise in labels and TXT records ✓   │  │
-│  │  Actual data:   AES-256 encrypted — completely unreadable ✓│  │
-│  └────────────────────────────────────────────────────────────┘  │
+│  Firewall sees: standard plaintext DNS query                     │
+│  Snooper sees:  random noise in labels and TXT records           │
+│  Actual data:   AES-256 encrypted — completely unreadable        │
 │                                                                  │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### Setting Up Encryption
+### Setting up encryption manually
 
 ```bash
-# 1. Generate a strong random key
+# Generate a key
 openssl rand -base64 32
 
-# 2. Add to your .env file (same key on client AND server)
+# Add to ~/.config/dnsclaw/.env (same key on client AND server)
 TUNNEL_PSK="your-generated-key-here"
 ```
 
-Both the client and server read `TUNNEL_PSK` from `.env`. If the keys don't match, you'll get a clear `Decryption failed — PSK mismatch` error.
+`setup.sh` generates this automatically.
 
-### Crypto Details
+### Crypto details
 
 | Property | Value |
 |---|---|
@@ -97,16 +206,32 @@ Both the client and server read `TUNNEL_PSK` from `.env`. If the keys don't matc
 | Wire overhead | 30 bytes per message |
 | Magic header | `0xCE 0x01` — identifies encrypted payloads |
 
-Encryption is **optional** — omit `TUNNEL_PSK` from `.env` and the system works unencrypted (backward compatible). When enabled, it applies to **all transport modes** (UDP, DoT, DoH) as an additional layer.
+Encryption is optional — omit `TUNNEL_PSK` and the system works unencrypted. When enabled, it applies to all transport modes (UDP, DoT, DoH) as an additional layer.
+
+## Transport Modes
+
+| Mode | Config | Default Port | Encryption | Notes |
+|---|---|---|---|---|
+| **UDP** (default) | Both `false` | 53 | PSK only | Standard DNS, requires `sudo` |
+| **DoT** | `USE_DOT=true` | 853 | TLS + PSK | Requires `sudo`, needs certs |
+| **DoH** | `USE_DOH=true` | 443 | HTTPS + PSK | Requires `sudo`, needs certs |
+
+For DoH, set `DNS_SERVER_ADDR=https://127.0.0.1/dns-query` (the full URL). For UDP and DoT, use just `127.0.0.1`.
+
+Generate self-signed certs for DoT/DoH:
+```bash
+./generate_certs.sh
+```
 
 ## Features
 
+- **Multi-provider** — Gemini, OpenAI, Claude (Anthropic), OpenRouter with auto-detection
 - **Payload encryption** — AES-256-GCM with PSK defeats DPI on captive portals and public WiFi
 - **Three transports** — Plain UDP (port 53), DNS-over-TLS (port 853), DNS-over-HTTPS (port 443)
-- **Agentic tools** — `client_execute_bash`, `client_read_file`, `client_write_file`, `client_list_directory` — all with user approval prompts
-- **Rich terminal UI** — Gradient ASCII banner, async spinners, full ANSI markdown rendering (bold, italic, code, headers, lists, code blocks with syntax labels)
-- **One-shot mode** — `./build/client_bin -m "what is 2+2"` for scripting
-- **Pipe support** — `echo "explain this" | ./build/client_bin`
+- **Agentic tools** — `client_execute_bash`, `client_read_file`, `client_write_file`, `client_list_directory` with user approval prompts
+- **Rich terminal UI** — Gradient ASCII banner, async spinners, full ANSI markdown rendering (bold, italic, code, headers, lists, code blocks)
+- **One-shot mode** — `dnsclaw -m "what is 2+2"` for scripting
+- **Pipe support** — `echo "explain this" | dnsclaw`
 - **Session management** — `/clear`, `/compact`, `/status` commands; auto-reaping of idle sessions after 30 minutes
 - **Zero SDK** — No Go, no Python, no Node — just C, libcurl, OpenSSL, and cJSON
 
@@ -115,129 +240,74 @@ Encryption is **optional** — omit `TUNNEL_PSK` from `.env` and the system work
 | Dependency | Purpose | Install |
 |---|---|---|
 | C compiler | clang or gcc | Xcode / `build-essential` |
-| CMake ≥ 3.14 | Build system | `brew install cmake` |
-| Ninja | Build tool | `brew install ninja` |
+| CMake >= 3.14 | Build system | `brew install cmake` |
 | OpenSSL 3.x | TLS + AES-256-GCM encryption | `brew install openssl@3` |
-| libcurl | HTTPS transport (DoH + Gemini API) | `brew install curl` |
+| libcurl | HTTPS transport (DoH + LLM APIs) | `brew install curl` |
 | cJSON | JSON serialization | Auto-fetched by CMake |
+| Ninja (optional) | Faster builds | `brew install ninja` |
 
-## Configuration
+## Manual Setup
 
-All configuration lives in a `.env` file (copy from `.env.example`):
+If you prefer not to use `setup.sh`:
 
 ```bash
-# Required — your Gemini API key
-GEMINI_API_KEY="your-api-key"
-GEMINI_MODEL="gemini-3.1-pro-preview"
+# Build
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 
-# Recommended — payload encryption key
-# Generate with: openssl rand -base64 32
-TUNNEL_PSK="your-psk-here"
+# Configure
+mkdir -p ~/.config/dnsclaw
+cp .env.example ~/.config/dnsclaw/.env
+# Edit ~/.config/dnsclaw/.env — set your API key and TUNNEL_PSK
 
-# Transport mode (pick one or leave both false for plain UDP)
-USE_DOT=false
-USE_DOH=false
-
-# Server address
-#   UDP/DoT: 127.0.0.1
-#   DoH:     https://127.0.0.1/dns-query  ← must include https:// and path
-DNS_SERVER_ADDR=127.0.0.1
-
-# Skip TLS cert verification (for self-signed certs)
-INSECURE_SKIP_VERIFY=true
-
-# Override default port (optional — defaults: UDP=53, DoT=853, DoH=443)
-# SERVER_PORT=53
-
-# TLS certificates (DoT/DoH only)
-TLS_CERT=cert.pem
-TLS_KEY=key.pem
-```
-
-## Transport Modes
-
-| Mode | Config | Default Port | Encryption Layer(s) | Notes |
-|---|---|---|---|---|
-| **UDP** (default) | Both `false` | 53 | PSK only | Standard DNS, requires `sudo` |
-| **DoT** | `USE_DOT=true` | 853 | TLS + PSK | Requires `sudo`, needs certs |
-| **DoH** | `USE_DOH=true` | 443 | HTTPS + PSK | Requires `sudo`, needs certs |
-
-> **Important**: For DoH, set `DNS_SERVER_ADDR=https://127.0.0.1/dns-query` (the full URL). For UDP and DoT, use just `127.0.0.1`.
-
-All modes support payload-level AES-256-GCM on top. For UDP, the PSK is your **only** encryption — but it's military-grade. For DoT/DoH, it adds a second layer.
-
-Generate self-signed certs for DoT/DoH:
-```bash
+# Generate TLS certs (only for DoT/DoH)
 ./generate_certs.sh
+
+# Run
+sudo ./build/dnsclaw-server   # terminal 1
+./build/dnsclaw               # terminal 2
 ```
-
-## Client Usage
-
-### Interactive mode (default)
-```bash
-./build/client_bin
-```
-
-### One-shot
-```bash
-./build/client_bin -m "list files in my home directory"
-```
-
-### Pipe
-```bash
-cat error.log | ./build/client_bin -m "explain this error"
-```
-
-### Flags
-| Flag | Description |
-|---|---|
-| `-m <msg>` | One-shot message |
-| `-s <addr>` | Server address |
-| `-p <port>` | Server port |
-| `--no-color` | Disable ANSI colors |
-| `--no-typewriter` | Disable typewriter text effect |
-
-### In-Session Commands
-| Command | Description |
-|---|---|
-| `/help` | Show available commands |
-| `/clear` | Start a new chat session |
-| `/compact [focus]` | Compress conversation context |
-| `/status` | Show session ID, transport, encryption, connection info |
-| `/exit` | Quit |
 
 ## Troubleshooting
 
 | Problem | Cause | Fix |
 |---|---|---|
 | `Failed to initialize session` | Client can't reach server | Check server is running, ports match, and `DNS_SERVER_ADDR` is correct |
-| `Decryption failed — PSK mismatch` | Client and server have different `TUNNEL_PSK` values | Ensure both use the exact same key in `.env` |
-| `FATAL: GEMINI_API_KEY not set` | Missing or empty API key | Add a valid Gemini API key to `.env` |
+| `Decryption failed — PSK mismatch` | Different `TUNNEL_PSK` values | Ensure client and server use the same key |
+| `FATAL: No API key found` | Missing API key | Run `setup.sh` or add a key to `~/.config/dnsclaw/.env` |
 | `bind: Permission denied` | Port 53/443/853 requires root | Run server with `sudo` |
-| DoH connection refused | Wrong `DNS_SERVER_ADDR` format | Use `https://127.0.0.1/dns-query` (full URL with path) |
-| `base32 decode failed` | Corrupted packet or version mismatch | Rebuild both client and server from same source |
+| DoH connection refused | Wrong address format | Use `https://127.0.0.1/dns-query` (full URL with path) |
+| `base32 decode failed` | Corrupted packet or version mismatch | Rebuild both binaries from same source |
 
 ## Project Structure
 
 ```
 ├── src/
-│   ├── client/main.c        # CLI, markdown renderer, tool executor (1300+ lines)
-│   ├── server/main.c        # DNS server, Gemini API client, session manager (1400+ lines)
-│   └── common/
-│       ├── crypto.c          # AES-256-GCM payload encryption + HKDF key derivation
-│       ├── dns_proto.c       # DNS wire format + UDP/DoT/DoH transport implementations
-│       ├── base32.c          # RFC 4648 Base32 encoding (client→server via DNS labels)
-│       ├── base64.c          # RFC 4648 Base64 encoding (server→client via TXT records)
-│       └── config.c          # .env file loader
-├── include/
-│   ├── crypto.h              # Encryption API
-│   ├── dns_proto.h           # DNS protocol API
-│   ├── base32.h / base64.h   # Encoding APIs
-│   └── config.h              # Shared config, version, theme colors
-├── CMakeLists.txt            # Build configuration (fetches cJSON automatically)
-├── generate_certs.sh         # Self-signed TLS certificate generator
-├── .env.example              # Configuration template
-└── LICENSE                   # MIT
+│   ├── client/          # CLI client (REPL, one-shot, pipe modes)
+│   │   ├── main.c       # Entry point, arg parsing, REPL loop
+│   │   ├── protocol.c   # DNS query wrapper, message processing, tool execution
+│   │   ├── render.c     # ANSI markdown renderer
+│   │   ├── spinner.c    # Async activity spinner
+│   │   └── ui.c         # Banner, help text
+│   ├── server/          # DNS server + LLM integration
+│   │   ├── main.c       # Entry point, provider detection, setup wizard
+│   │   ├── handler.c    # DNS query dispatcher (init/upload/fin/download)
+│   │   ├── llm.c        # Multi-provider API calls + response parsing
+│   │   ├── transport.c  # UDP, DoT, DoH listeners
+│   │   ├── session.c    # Session lifecycle + reaper thread
+│   │   └── log.c        # Colored logging
+│   └── common/          # Shared between client and server
+│       ├── crypto.c     # AES-256-GCM encryption + HKDF key derivation
+│       ├── dns_proto.c  # DNS wire format + UDP/DoT/DoH transport
+│       ├── base32.c     # RFC 4648 Base32 (client -> server via DNS labels)
+│       ├── base64.c     # RFC 4648 Base64 (server -> client via TXT records)
+│       └── config.c     # .env file loader
+├── include/             # Header files
+├── CMakeLists.txt       # Build system (auto-fetches cJSON)
+├── setup.sh             # First-run setup script
+├── generate_certs.sh    # TLS certificate generator
+├── .env.example         # Configuration template
+└── LICENSE              # MIT
 ```
 
 ## License

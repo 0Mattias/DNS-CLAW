@@ -58,7 +58,7 @@ target_link_libraries(dns_llm_common PUBLIC
 
 # ── Server ───────────────────────────────────────────────────────────────────
 
-add_executable(server_bin
+add_executable(dnsclaw-server
     src/server/main.c
     src/server/log.c
     src/server/session.c
@@ -66,25 +66,29 @@ add_executable(server_bin
     src/server/handler.c
     src/server/transport.c
 )
-target_link_libraries(server_bin PRIVATE
+target_link_libraries(dnsclaw-server PRIVATE
     dns_llm_common
     cjson
     Threads::Threads
 )
-target_include_directories(server_bin PRIVATE ${cJSON_SOURCE_DIR})
+target_include_directories(dnsclaw-server PRIVATE ${cJSON_SOURCE_DIR})
 
 # ── Client ───────────────────────────────────────────────────────────────────
 
-add_executable(client_bin
+add_executable(dnsclaw
     src/client/main.c
     src/client/render.c
     src/client/spinner.c
     src/client/protocol.c
     src/client/ui.c
 )
-target_link_libraries(client_bin PRIVATE
+target_link_libraries(dnsclaw PRIVATE
     dns_llm_common
     cjson
     Threads::Threads
 )
-target_include_directories(client_bin PRIVATE ${cJSON_SOURCE_DIR})
+target_include_directories(dnsclaw PRIVATE ${cJSON_SOURCE_DIR})
+
+# ── Install ──────────────────────────────────────────────────────────────────
+
+install(TARGETS dnsclaw-server dnsclaw DESTINATION bin)

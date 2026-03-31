@@ -56,6 +56,13 @@ int main(int argc, char **argv)
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, NULL);
 
+    /* Load .env from multiple locations (first match wins per variable) */
+    const char *home = getenv("HOME");
+    if (home) {
+        char config_env[512];
+        snprintf(config_env, sizeof(config_env), "%s/.config/dnsclaw/.env", home);
+        load_dotenv(config_env);
+    }
     load_dotenv("../.env");
     load_dotenv(".env");
 

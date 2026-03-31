@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <curl/curl.h>
@@ -83,7 +84,13 @@ int main(void)
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    /* Load .env files */
+    /* Load .env from multiple locations (first match wins per variable) */
+    const char *home = getenv("HOME");
+    if (home) {
+        char config_env[512];
+        snprintf(config_env, sizeof(config_env), "%s/.config/dnsclaw/.env", home);
+        load_dotenv(config_env);
+    }
     load_dotenv("../.env");
     load_dotenv(".env");
 
@@ -231,18 +238,30 @@ int main(void)
                         sizeof(g_config.model) - 1);
             }
 
-            /* Save to .env */
-            FILE *envf = fopen(".env", "a");
-            if (envf) {
-                fprintf(envf, "\n# Added by DNS-CLAW setup wizard\n");
-                fprintf(envf, "%s=\"%s\"\n",
-                        KEY_ENVS[idx], g_config.api_key);
-                fprintf(envf, "%s=\"%s\"\n",
-                        MODEL_ENVS[idx], g_config.model);
-                fclose(envf);
-                fprintf(stderr, CLR_R2 "  │" CLR_RESET "\n");
-                fprintf(stderr, CLR_R2 "  │  " CLR_R3
-                    "\xe2\x9c\x93" CLR_RESET " Saved to .env\n");
+            /* Save to ~/.config/dnsclaw/.env (create dir if needed) */
+            {
+                char env_dir[512] = {0};
+                char env_path[512] = ".env";
+                const char *h = getenv("HOME");
+                if (h) {
+                    snprintf(env_dir, sizeof(env_dir),
+                             "%s/.config/dnsclaw", h);
+                    mkdir(env_dir, 0700);
+                    snprintf(env_path, sizeof(env_path),
+                             "%s/.config/dnsclaw/.env", h);
+                }
+                FILE *envf = fopen(env_path, "a");
+                if (envf) {
+                    fprintf(envf, "\n# Added by DNS-CLAW setup wizard\n");
+                    fprintf(envf, "%s=\"%s\"\n",
+                            KEY_ENVS[idx], g_config.api_key);
+                    fprintf(envf, "%s=\"%s\"\n",
+                            MODEL_ENVS[idx], g_config.model);
+                    fclose(envf);
+                    fprintf(stderr, CLR_R2 "  │" CLR_RESET "\n");
+                    fprintf(stderr, CLR_R2 "  │  " CLR_R3
+                        "\xe2\x9c\x93" CLR_RESET " Saved to %s\n", env_path);
+                }
             }
             fprintf(stderr, CLR_R2 "  \xe2\x94\x94" CLR_DIM
                 "───────────────────────────────────────────────"
