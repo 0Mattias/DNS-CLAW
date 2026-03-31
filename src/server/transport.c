@@ -141,6 +141,7 @@ void *dot_server_thread(void *arg)
         fprintf(stderr, "[dot] SSL_CTX_new failed\n");
         return NULL;
     }
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
 
     if (SSL_CTX_use_certificate_file(ctx, g_config.tls_cert, SSL_FILETYPE_PEM) <= 0 ||
         SSL_CTX_use_PrivateKey_file(ctx, g_config.tls_key, SSL_FILETYPE_PEM) <= 0) {
@@ -254,7 +255,15 @@ static void *doh_client_thread(void *arg)
         if (cl) {
             cl += 15;
             while (*cl == ' ') cl++;
-            content_length = atoi(cl);
+            char *end;
+            long cl_val = strtol(cl, &end, 10);
+            if (cl_val < 0 || cl_val > DNS_MAX_MSG) {
+                const char *err = "HTTP/1.1 413 Payload Too Large\r\n"
+                                  "Content-Length: 0\r\nConnection: close\r\n\r\n";
+                SSL_write(dc->ssl, err, (int)strlen(err));
+                goto done;
+            }
+            content_length = (int)cl_val;
         }
 
         int body_so_far = total - header_end;
@@ -266,6 +275,8 @@ static void *doh_client_thread(void *arg)
             total += n;
             body_so_far = total - header_end;
         }
+
+        if (body_so_far < content_length) goto done;
 
         uint8_t *dns_msg = (uint8_t *)(http_buf + header_end);
         int dns_len = body_so_far;
@@ -309,6 +320,7 @@ void *doh_server_thread(void *arg)
         fprintf(stderr, "[doh] SSL_CTX_new failed\n");
         return NULL;
     }
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
 
     if (SSL_CTX_use_certificate_file(ctx, g_config.tls_cert, SSL_FILETYPE_PEM) <= 0 ||
         SSL_CTX_use_PrivateKey_file(ctx, g_config.tls_key, SSL_FILETYPE_PEM) <= 0) {
