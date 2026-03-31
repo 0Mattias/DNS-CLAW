@@ -13,6 +13,7 @@
  */
 #define _POSIX_C_SOURCE 200809L
 
+#include <limits.h>
 #include <stdatomic.h>
 
 #include <arpa/inet.h>
@@ -121,36 +122,35 @@ static int g_server_fd = -1;  /* closed from signal handler to unblock accept/re
  * Utility
  * ═══════════════════════════════════════════════════════════════════════════ */
 
+/* macOS provides arc4random_buf in <stdlib.h> but _POSIX_C_SOURCE hides it */
+extern void arc4random_buf(void *, size_t);
+
 static void generate_id(char *out, size_t len)
 {
     static const char hex[] = "0123456789abcdef";
     uint8_t randbuf[16];
-    extern void arc4random_buf(void *, size_t);
     arc4random_buf(randbuf, sizeof(randbuf));
-    size_t n = len - 1;
+    size_t n = (len - 1) / 2;  /* 2 hex chars per byte */
     if (n > 16) n = 16;
-    for (size_t i = 0; i < n; i++)
-        out[i] = hex[randbuf[i] % 16];
-    out[n] = '\0';
+    size_t pos = 0;
+    for (size_t i = 0; i < n && pos + 1 < len; i++) {
+        out[pos++] = hex[(randbuf[i] >> 4) & 0x0F];
+        out[pos++] = hex[randbuf[i] & 0x0F];
+    }
+    out[pos] = '\0';
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Colored Logging
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Theme colors — warm red palette matching DNS CLAW banner */
-#define LOG_R1     "\033[38;2;255;60;50m"    /* Primary accent (hot red) */
-#define LOG_R2     "\033[38;2;255;100;80m"   /* Secondary (warm coral) */
-#define LOG_R3     "\033[38;2;255;140;110m"  /* Tertiary (salmon) */
-#define LOG_R4     "\033[38;2;255;195;180m"  /* Light accent (blush) */
-#define LOG_DIM    "\033[38;2;100;80;80m"    /* Muted red-grey */
-#define LOG_RESET  "\033[0m"
+/* Use CLR_* theme colors from config.h — no local duplicates */
 
 static void log_info(const char *tag, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, LOG_R2 "[%s]" LOG_RESET " ", tag);
+    fprintf(stderr, CLR_R2 "[%s]" CLR_RESET " ", tag);
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
     va_end(ap);
@@ -160,7 +160,7 @@ static void log_ok(const char *tag, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, LOG_R3 "[%s]" LOG_RESET " ", tag);
+    fprintf(stderr, CLR_R3 "[%s]" CLR_RESET " ", tag);
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
     va_end(ap);
@@ -170,7 +170,7 @@ static void log_warn(const char *tag, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, LOG_R4 "[%s]" LOG_RESET " ", tag);
+    fprintf(stderr, CLR_R4 "[%s]" CLR_RESET " ", tag);
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
     va_end(ap);
@@ -180,7 +180,7 @@ static void log_err(const char *tag, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    fprintf(stderr, LOG_R1 "[%s]" LOG_RESET " ", tag);
+    fprintf(stderr, CLR_R1 "[%s]" CLR_RESET " ", tag);
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
     va_end(ap);
@@ -240,6 +240,34 @@ static char *load_env(const char *name, const char *fallback)
     const char *v = getenv(name);
     if (v && v[0]) return strdup(v);
     return fallback ? strdup(fallback) : NULL;
+}
+
+/*
+ * Safe integer parsing for untrusted DNS label data.
+ * Returns the parsed value, or -1 if the string is not a valid non-negative integer.
+ */
+static int safe_atoi(const char *s)
+{
+    if (!s || !*s) return -1;
+    char *end;
+    errno = 0;
+    long val = strtol(s, &end, 10);
+    if (errno != 0 || *end != '\0' || val < 0 || val > INT_MAX)
+        return -1;
+    return (int)val;
+}
+
+/*
+ * Find a session by ID. Caller must hold g_lock.
+ * Returns NULL if not found.
+ */
+static session_t *find_session(const char *sid)
+{
+    for (int i = 0; i < MAX_SESSIONS; i++) {
+        if (g_sessions[i].active && strcmp(g_sessions[i].id, sid) == 0)
+            return &g_sessions[i];
+    }
+    return NULL;
 }
 
 /* load_dotenv is provided by config.c (linked via dns_llm_common) */
@@ -618,19 +646,26 @@ static void *process_llm_thread(void *arg)
         /* Extract text */
         cJSON_AddStringToObject(result_json, "type", "text");
 
-        char *text_buf = calloc(65536, 1);
+        #define TEXT_BUF_SIZE 65536
+        char *text_buf = calloc(TEXT_BUF_SIZE, 1);
         if (text_buf && cand_parts) {
             cJSON *cp;
+            size_t cur = 0;
             cJSON_ArrayForEach(cp, cand_parts) {
                 const char *t = cJSON_GetStringValue(cJSON_GetObjectItem(cp, "text"));
                 if (t) {
-                    size_t cur = strlen(text_buf);
-                    snprintf(text_buf + cur, 65536 - cur, "%s", t);
+                    int written = snprintf(text_buf + cur, TEXT_BUF_SIZE - cur, "%s", t);
+                    if (written > 0) cur += (size_t)written;
+                    if (cur >= TEXT_BUF_SIZE - 1) {
+                        log_warn("llm", "Response text truncated at %zu bytes", cur);
+                        break;
+                    }
                 }
             }
         }
         cJSON_AddStringToObject(result_json, "content", text_buf ? text_buf : "");
         free(text_buf);
+        #undef TEXT_BUF_SIZE
     }
 
     /*
@@ -763,9 +798,14 @@ static int handle_dns_query(const uint8_t *query, size_t query_len,
     /* ── <chunk>.<seq>.up.<mid>.<sid>.llm.local. ──────────────────── */
     if (nparts >= 7 && strcmp(parts[2], "up") == 0) {
         const char *chunk_b32 = parts[0];
-        int seq = atoi(parts[1]);
-        int mid = atoi(parts[3]);
+        int seq = safe_atoi(parts[1]);
+        int mid = safe_atoi(parts[3]);
         const char *sid = parts[4];
+
+        if (seq < 0) {
+            return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL,
+                                      resp_buf, resp_buf_len);
+        }
 
         if (mid < 0 || mid >= MAX_MSG_IDS) {
             return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL,
@@ -773,13 +813,7 @@ static int handle_dns_query(const uint8_t *query, size_t query_len,
         }
 
         pthread_mutex_lock(&g_lock);
-        session_t *sess = NULL;
-        for (int i = 0; i < MAX_SESSIONS; i++) {
-            if (g_sessions[i].active && strcmp(g_sessions[i].id, sid) == 0) {
-                sess = &g_sessions[i];
-                break;
-            }
-        }
+        session_t *sess = find_session(sid);
 
         const char *reply = "ERR:NOSESSION";
         if (sess) {
@@ -804,7 +838,7 @@ static int handle_dns_query(const uint8_t *query, size_t query_len,
 
     /* ── fin.<mid>.<sid>.llm.local. ───────────────────────────────── */
     if (nparts >= 5 && strcmp(parts[0], "fin") == 0) {
-        int mid = atoi(parts[1]);
+        int mid = safe_atoi(parts[1]);
         const char *sid = parts[2];
 
         if (mid < 0 || mid >= MAX_MSG_IDS) {
@@ -813,13 +847,7 @@ static int handle_dns_query(const uint8_t *query, size_t query_len,
         }
 
         pthread_mutex_lock(&g_lock);
-        session_t *sess = NULL;
-        for (int i = 0; i < MAX_SESSIONS; i++) {
-            if (g_sessions[i].active && strcmp(g_sessions[i].id, sid) == 0) {
-                sess = &g_sessions[i];
-                break;
-            }
-        }
+        session_t *sess = find_session(sid);
 
         const char *reply = "ERR:NOSESSION";
         if (sess) {
@@ -842,9 +870,14 @@ static int handle_dns_query(const uint8_t *query, size_t query_len,
 
     /* ── <seq>.<mid>.down.<sid>.llm.local. ────────────────────────── */
     if (nparts >= 6 && strcmp(parts[2], "down") == 0) {
-        int seq = atoi(parts[0]);
-        int mid = atoi(parts[1]);
+        int seq = safe_atoi(parts[0]);
+        int mid = safe_atoi(parts[1]);
         const char *sid = parts[3];
+
+        if (seq < 0) {
+            return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL,
+                                      resp_buf, resp_buf_len);
+        }
 
         if (mid < 0 || mid >= MAX_MSG_IDS) {
             return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL,
@@ -852,13 +885,7 @@ static int handle_dns_query(const uint8_t *query, size_t query_len,
         }
 
         pthread_mutex_lock(&g_lock);
-        session_t *sess = NULL;
-        for (int i = 0; i < MAX_SESSIONS; i++) {
-            if (g_sessions[i].active && strcmp(g_sessions[i].id, sid) == 0) {
-                sess = &g_sessions[i];
-                break;
-            }
-        }
+        session_t *sess = find_session(sid);
 
         const char *reply = "ERR:NOSESSION";
         if (sess) {
@@ -1245,9 +1272,18 @@ static void sigint_main_handler(int sig)
 
 int main(void)
 {
-    signal(SIGPIPE, SIG_IGN);
-    signal(SIGINT, sigint_main_handler);
-    signal(SIGTERM, sigint_main_handler);
+    /* Use sigaction() for reliable signal handling */
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    sa.sa_handler = SIG_IGN;
+    sigaction(SIGPIPE, &sa, NULL);
+
+    sa.sa_handler = sigint_main_handler;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
@@ -1266,7 +1302,7 @@ int main(void)
     strncpy(g_config.api_key, api_key, sizeof(g_config.api_key) - 1);
     free(api_key);
 
-    char *model = load_env("GEMINI_MODEL", "gemini-2.5-flash");
+    char *model = load_env("GEMINI_MODEL", "gemini-3.1-pro-preview");
     strncpy(g_config.model, model, sizeof(g_config.model) - 1);
     free(model);
 
@@ -1295,7 +1331,7 @@ int main(void)
 
     /* Banner */
     print_banner_to(stderr);
-    fprintf(stderr, LOG_R4 "  DNS-CLAW Server" LOG_DIM "  v1.0.0" LOG_RESET "\n\n");
+    fprintf(stderr, CLR_R4 "  DNS-CLAW Server" CLR_DIM "  v" DNS_CLAW_VERSION CLR_RESET "\n\n");
 
     log_info("config", "Model:     %s", g_config.model);
     log_info("config", "Transport: %s",

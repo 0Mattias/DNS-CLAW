@@ -8,6 +8,10 @@
 
 #include <stdio.h>
 
+/* ── Version ─────────────────────────────────────────────────────────────── */
+
+#define DNS_CLAW_VERSION "1.0.0"
+
 /* ── Theme Colors (ANSI true-color escape sequences) ─────────────────────── */
 
 #define CLR_R1     "\033[38;2;255;60;50m"    /* Primary accent (hot red) */

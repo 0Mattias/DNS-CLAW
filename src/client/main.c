@@ -47,10 +47,10 @@
  * Configuration & Global State
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-#define DNS_CLAW_VERSION "1.0.0"
 #define MAX_MSG_IDS      256   /* must match server's MAX_MSG_IDS */
 #define UPLOAD_CHUNK_SZ  35    /* base32(35 bytes) = 56 chars, fits DNS 63-char label */
 #define RESP_BUF_SIZE    131072  /* 128KB response buffer */
+#define TOOL_RESULT_SIZE 8192    /* max tool output sent back to model */
 
 static struct {
     char server_addr[256];
@@ -788,7 +788,7 @@ static int process_message_loop(const char *type, const char *content,
             set_fg_rgb(THEME_R2);
             printf(" ── %s\n" ANSI_RESET, fn ? fn : "unknown");
 
-            char tool_result[8192] = {0};
+            char tool_result[TOOL_RESULT_SIZE] = {0};
 
             if (fn && strcmp(fn, "client_execute_bash") == 0) {
                 const char *cmd = cJSON_GetStringValue(
@@ -853,8 +853,8 @@ static int process_message_loop(const char *type, const char *content,
                                 "Ask what they'd like instead.");
                         }
                     }
-                    if (strlen(tool_result) > 2000)
-                        strcpy(tool_result + 2000, "\n…[truncated]");
+                    if (strlen(tool_result) > TOOL_RESULT_SIZE - 16)
+                        strcpy(tool_result + TOOL_RESULT_SIZE - 16, "\n…[truncated]");
                 }
 
             } else if (fn && strcmp(fn, "client_read_file") == 0) {
@@ -878,8 +878,8 @@ static int process_message_loop(const char *type, const char *content,
                                              sizeof(tool_result) - 1, fp);
                         tool_result[total] = '\0';
                         fclose(fp);
-                        if (strlen(tool_result) > 2000)
-                            strcpy(tool_result + 2000, "\n…[truncated]");
+                        if (strlen(tool_result) > TOOL_RESULT_SIZE - 16)
+                            strcpy(tool_result + TOOL_RESULT_SIZE - 16, "\n…[truncated]");
                     }
                 }
 
@@ -1116,7 +1116,7 @@ int main(int argc, char **argv)
             strncpy(g_cfg.server_addr, optarg, sizeof(g_cfg.server_addr) - 1);
             break;
         case 'p':
-            g_cfg.port = atoi(optarg);
+            g_cfg.port = (int)strtol(optarg, NULL, 10);
             break;
         case 'C':
             g_cfg.no_color = 1;
@@ -1152,7 +1152,7 @@ int main(int argc, char **argv)
         else                    g_cfg.port = 53535;
 
         if ((env = getenv("SERVER_PORT")) && env[0])
-            g_cfg.port = atoi(env);
+            g_cfg.port = (int)strtol(env, NULL, 10);
     }
 
     /* Non-interactive: disable typewriter */
