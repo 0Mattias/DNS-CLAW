@@ -2,6 +2,8 @@ build/
 .cache/
 *.pem
 .env
+.env.*
+!.env.example
 *.o
 *.d
 *.a
@@ -9,7 +11,10 @@ build/
 *.dylib
 *.gcda
 *.gcno
+*.dSYM/
 .DS_Store
 reference/
 CMakeUserPresets.json
 compile_commands.json
+.vscode/
+.idea/
