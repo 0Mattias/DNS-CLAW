@@ -86,6 +86,14 @@ Config loaded from (first match wins per variable):
 
 Environment variables override all `.env` files. Key settings: `*_API_KEY`, `TUNNEL_PSK`, `USE_DOT`/`USE_DOH`, `DNS_SERVER_ADDR`. See `.env.example` for the full reference.
 
+## Security Patterns
+
+When modifying tool execution code in `client/protocol.c`:
+- **Never pass LLM-supplied strings directly to `popen()`/`system()`**. Use `shell_escape()` (defined at top of file) to wrap all parameters in safely-escaped single quotes.
+- **All `strncpy` calls must be followed by explicit null termination**: `buf[sizeof(buf) - 1] = '\0';`
+- **Validate arithmetic on `size_t` before subtraction** to prevent underflow (e.g., check `a + b <= total` before computing `total - a - b`).
+- **Session `busy` refcount**: must be incremented under `g_lock` *before* spawning the LLM thread (in `handler.c`), not inside the thread itself, to prevent the reaper from destroying the session in the gap.
+
 ## Dependencies
 
 C11 compiler, CMake >= 3.14, OpenSSL 3.x, libcurl, pthreads. cJSON is fetched automatically. On macOS, CMakeLists.txt assumes Homebrew paths (`/opt/homebrew/opt/`). `mise.toml` pins cmake and ninja.

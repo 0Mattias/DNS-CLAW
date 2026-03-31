@@ -259,6 +259,7 @@ Generate self-signed certs for DoT/DoH:
 - **Pipe support** — `echo "explain this" | dnsclaw`
 - **Session management** — `/clear`, `/compact`, `/status` commands; auto-reaping of idle sessions after 30 minutes
 - **Zero SDK** — No Go, no Python, no Node — just C, libcurl, OpenSSL, and cJSON
+- **Hardened build** — `-D_FORTIFY_SOURCE=2`, `-fstack-protector-strong`, `-fPIE`, full RELRO on Linux; ASan/UBSan/TSan in CI
 
 ## Dependencies
 
@@ -307,6 +308,33 @@ sudo -E ./build/dnsclaw-server   # terminal 1
 | DoH connection refused | Wrong address format | Use `https://127.0.0.1/dns-query` (full URL with path) |
 | `base32 decode failed` | Corrupted packet or version mismatch | Rebuild both binaries from same source |
 
+## Development
+
+### Building from source
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+Build types: `Release` (hardened, default), `Debug` (ASan + UBSan), `TSan` (ThreadSanitizer).
+
+### Running tests
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+4 test suites cover the common library: base64, base32, AES-256-GCM crypto (roundtrip, wrong-key, tampering), and DNS wire format.
+
+### CI
+
+GitHub Actions runs on every push and PR: matrix build (Ubuntu + macOS × Release + Debug) plus a dedicated ThreadSanitizer job. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+### Code style
+
+A `.clang-format` config is included (LLVM-based, 4-space indent, 100-column limit).
+
 ## Project Structure
 
 ```
@@ -316,7 +344,7 @@ sudo -E ./build/dnsclaw-server   # terminal 1
 │   │   ├── protocol.c   # DNS query wrapper, message processing, 7-tool executor
 │   │   ├── render.c     # ANSI markdown renderer
 │   │   ├── spinner.c    # Async activity spinner
-│   │   └── ui.c         # Banner, help text
+│   │   └── ui.c         # Banner, help text, config subcommand, provider setup
 │   ├── server/          # DNS server + LLM integration
 │   │   ├── main.c       # Entry point, provider detection, setup wizard
 │   │   ├── handler.c    # DNS query dispatcher (init/upload/fin/download)
@@ -330,10 +358,17 @@ sudo -E ./build/dnsclaw-server   # terminal 1
 │       ├── base32.c     # RFC 4648 Base32 (client -> server via DNS labels)
 │       ├── base64.c     # RFC 4648 Base64 (server -> client via TXT records)
 │       └── config.c     # .env file loader
+├── tests/               # Unit tests (CTest)
+│   ├── test_base64.c    # Base64 codec tests (RFC 4648 vectors)
+│   ├── test_base32.c    # Base32 codec tests
+│   ├── test_crypto.c    # AES-256-GCM roundtrip, wrong-key, tampering
+│   └── test_dns_proto.c # DNS wire format build/parse tests
 ├── include/             # Header files
+├── .github/workflows/   # CI (GitHub Actions)
 ├── CMakeLists.txt       # Build system (auto-fetches cJSON)
 ├── setup.sh             # First-run setup script
 ├── generate_certs.sh    # TLS certificate generator
+├── .clang-format        # Code style config
 ├── .env.example         # Configuration template
 └── LICENSE              # MIT
 ```
