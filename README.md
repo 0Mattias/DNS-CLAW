@@ -22,8 +22,9 @@ The setup script checks dependencies, asks for your LLM provider/key, generates 
 Then run:
 
 ```bash
-# Terminal 1 — start the server (port 53 requires sudo)
-sudo -E ./build/dnsclaw-server
+# Terminal 1 — start the server
+./build/dnsclaw-server              # works on macOS without root
+sudo -E ./build/dnsclaw-server      # required on Linux (port 53 needs root; -E preserves your .env)
 
 # Terminal 2 — start chatting
 ./build/dnsclaw
@@ -34,7 +35,8 @@ sudo -E ./build/dnsclaw-server
 ```bash
 sudo cmake --install build
 # Now available anywhere:
-sudo -E dnsclaw-server    # terminal 1
+dnsclaw-server            # terminal 1 (macOS)
+sudo -E dnsclaw-server    # terminal 1 (Linux)
 dnsclaw                   # terminal 2
 ```
 
@@ -103,10 +105,11 @@ dnsclaw config --provider                          # interactive provider setup
 DNS server that tunnels LLM requests. Listens for DNS queries, reassembles chunked messages, calls the configured LLM API, and returns responses as TXT records.
 
 ```bash
-sudo -E dnsclaw-server              # start with .env config
+./build/dnsclaw-server              # start (macOS — no root needed)
+sudo -E dnsclaw-server              # start (Linux — port 53 needs root)
 ```
 
-If no API key is configured, the server prints setup instructions and exits. Use `./setup.sh` or `dnsclaw config --provider` to configure.
+If no API key is configured, the server diagnoses the cause (missing `.env` file, sudo without `-E`, or empty config), lists the paths it searched, and prints setup instructions. If a privileged port bind fails, it suggests `sudo -E` or setting `SERVER_PORT`.
 
 The server logs all activity to stderr with colored output:
 ```
@@ -140,8 +143,9 @@ Safe read-only tools run automatically. Destructive tools (bash, write, edit) pr
 Config is loaded from these locations (first match wins per variable):
 
 1. `~/.config/dnsclaw/.env` — user config (created by `setup.sh`)
-2. `./.env` — project-local config (for development)
+2. `$SUDO_USER`'s `~/.config/dnsclaw/.env` — original user's config when running under sudo
 3. `../.env` — parent directory (legacy)
+4. `./.env` — project-local config (for development)
 
 Environment variables set in your shell override all `.env` files.
 
@@ -238,9 +242,9 @@ Encryption is optional — omit `TUNNEL_PSK` and the system works unencrypted. W
 
 | Mode | Config | Default Port | Encryption | Notes |
 |---|---|---|---|---|
-| **UDP** (default) | Both `false` | 53 | PSK only | Standard DNS, requires `sudo` |
-| **DoT** | `USE_DOT=true` | 853 | TLS + PSK | Requires `sudo`, needs certs |
-| **DoH** | `USE_DOH=true` | 443 | HTTPS + PSK | Requires `sudo`, needs certs |
+| **UDP** (default) | Both `false` | 53 | PSK only | Standard DNS; needs `sudo` on Linux, works without on macOS |
+| **DoT** | `USE_DOT=true` | 853 | TLS + PSK | Needs `sudo` on Linux, needs certs |
+| **DoH** | `USE_DOH=true` | 443 | HTTPS + PSK | Needs `sudo` on Linux, needs certs |
 
 For DoH, set `DNS_SERVER_ADDR=https://127.0.0.1/dns-query` (the full URL). For UDP and DoT, use just `127.0.0.1`.
 
@@ -291,7 +295,8 @@ cp .env.example ~/.config/dnsclaw/.env
 # Edit: set your API key and TUNNEL_PSK
 
 # Run
-sudo -E ./build/dnsclaw-server   # terminal 1
+./build/dnsclaw-server           # terminal 1 (macOS)
+sudo -E ./build/dnsclaw-server   # terminal 1 (Linux — port 53 needs root)
 ./build/dnsclaw                  # terminal 2
 ```
 
@@ -301,8 +306,8 @@ sudo -E ./build/dnsclaw-server   # terminal 1
 |---|---|---|
 | `Failed to initialize session` | Client can't reach server | Check server is running, ports match, and `DNS_SERVER_ADDR` is correct |
 | `Decryption failed — PSK mismatch` | Different `TUNNEL_PSK` values | Ensure client and server use the same key |
-| `FATAL: No API key configured` | Missing API key | Run `./setup.sh` or `dnsclaw config --provider` |
-| `bind: Permission denied` | Port 53/443/853 requires root | Run server with `sudo -E` (the `-E` preserves your env) |
+| `FATAL: No API key configured` | Missing API key | Run `./setup.sh` or `dnsclaw config --provider` — the error output shows which `.env` paths were searched and the likely cause |
+| `bind: Permission denied` | Port 53/443/853 requires root on Linux | Run server with `sudo -E` (the `-E` preserves your env) or set `SERVER_PORT` to a high port. macOS does not require root for port 53 |
 | DoH connection refused | Wrong address format | Use `https://127.0.0.1/dns-query` (full URL with path) |
 | `base32 decode failed` | Corrupted packet or version mismatch | Rebuild both binaries from same source |
 
