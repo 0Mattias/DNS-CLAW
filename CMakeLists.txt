@@ -43,6 +43,7 @@ add_library(dns_llm_common STATIC
     src/common/base32.c
     src/common/base64.c
     src/common/config.c
+    src/common/crypto.c
     src/common/dns_proto.c
 )
 target_include_directories(dns_llm_common PUBLIC include)

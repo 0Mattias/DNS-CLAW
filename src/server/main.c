@@ -38,6 +38,7 @@
 #include "base32.h"
 #include "base64.h"
 #include "config.h"
+#include "crypto.h"
 #include "dns_proto.h"
 
 /* Portable case-insensitive substring search (replaces strcasestr) */
@@ -538,6 +539,24 @@ static void *process_llm_thread(void *arg)
     }
     payload_bytes[decoded_len] = '\0';
 
+    /* Decrypt payload if PSK is configured */
+    if (tunnel_crypto_enabled() && decoded_len > (int)CRYPTO_OVERHEAD) {
+        uint8_t decrypted[65536];
+        size_t dec_len = 0;
+        if (tunnel_decrypt(payload_bytes, (size_t)decoded_len,
+                           decrypted, &dec_len) == 0) {
+            memcpy(payload_bytes, decrypted, dec_len);
+            payload_bytes[dec_len] = '\0';
+            decoded_len = (int)dec_len;
+        } else {
+            log_err("llm", "Payload decryption failed — PSK mismatch or corruption");
+            pthread_mutex_lock(&g_lock);
+            sess->responses[msg_id].failed = 1;
+            pthread_mutex_unlock(&g_lock);
+            goto done;
+        }
+    }
+
     /* Parse JSON payload: {"type":"user|tool_response","content":"...","tool_name":"..."} */
     cJSON *payload = cJSON_Parse((char *)payload_bytes);
     if (!payload) {
@@ -683,14 +702,37 @@ static void *process_llm_thread(void *arg)
 
     cJSON_Delete(api_resp);
 
-    /* 5. Encode response → base64 → chunk into TXT-sized pieces */
+    /* 5. Encode response → [encrypt →] base64 → chunk into TXT-sized pieces */
     char *result_str = cJSON_PrintUnformatted(result_json);
     cJSON_Delete(result_json);
 
     size_t result_len = strlen(result_str);
-    size_t b64_len = base64_encoded_len(result_len) + 1;
+
+    /* Encrypt response if PSK is configured */
+    uint8_t *encode_data = (uint8_t *)result_str;
+    size_t encode_len = result_len;
+    uint8_t *encrypted = NULL;
+    if (tunnel_crypto_enabled()) {
+        encrypted = malloc(result_len + CRYPTO_OVERHEAD);
+        if (encrypted &&
+            tunnel_encrypt((uint8_t *)result_str, result_len,
+                           encrypted, &encode_len) == 0) {
+            encode_data = encrypted;
+        } else {
+            log_err("llm", "Response encryption failed");
+            free(encrypted);
+            free(result_str);
+            pthread_mutex_lock(&g_lock);
+            sess->responses[msg_id].failed = 1;
+            pthread_mutex_unlock(&g_lock);
+            goto done;
+        }
+    }
+
+    size_t b64_len = base64_encoded_len(encode_len) + 1;
     char *b64_buf = malloc(b64_len);
-    base64_encode((uint8_t *)result_str, result_len, b64_buf, b64_len);
+    base64_encode(encode_data, encode_len, b64_buf, b64_len);
+    free(encrypted);  /* safe even if NULL */
     free(result_str);
 
     /* Chunk into CHUNK_SIZE-character pieces */
@@ -1311,14 +1353,14 @@ int main(void)
 
     char *port_str = load_env("SERVER_PORT", NULL);
     if (port_str) {
-        g_config.port = atoi(port_str);
+        g_config.port = safe_atoi(port_str);
         free(port_str);
     }
 
     if (g_config.port == 0) {
         if (g_config.use_dot)      g_config.port = 853;
         else if (g_config.use_doh) g_config.port = 443;
-        else                       g_config.port = 53535;
+        else                       g_config.port = 53;
     }
 
     char *cert = load_env("TLS_CERT", "cert.pem");
@@ -1329,6 +1371,16 @@ int main(void)
     strncpy(g_config.tls_key, key, sizeof(g_config.tls_key) - 1);
     free(key);
 
+    /* Initialize payload encryption from PSK */
+    char *psk = load_env("TUNNEL_PSK", NULL);
+    if (tunnel_crypto_init(psk) < 0) {
+        log_err("FATAL", "Failed to initialize encryption");
+        free(psk);
+        curl_global_cleanup();
+        return 1;
+    }
+    free(psk);
+
     /* Banner */
     print_banner_to(stderr);
     fprintf(stderr, CLR_R4 "  DNS-CLAW Server" CLR_DIM "  v" DNS_CLAW_VERSION CLR_RESET "\n\n");
@@ -1337,6 +1389,8 @@ int main(void)
     log_info("config", "Transport: %s",
              g_config.use_doh ? "DoH (HTTPS)" :
              g_config.use_dot ? "DoT (TLS)" : "UDP (plain)");
+    log_info("config", "Encryption: %s",
+             tunnel_crypto_enabled() ? "AES-256-GCM (PSK)" : "none (plaintext)");
     log_info("config", "Port:      %d", g_config.port);
     fprintf(stderr, "\n");
 

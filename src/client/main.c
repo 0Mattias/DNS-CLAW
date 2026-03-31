@@ -41,6 +41,7 @@
 #include "base32.h"
 #include "base64.h"
 #include "config.h"
+#include "crypto.h"
 #include "dns_proto.h"
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -634,6 +635,33 @@ static int process_message_loop(const char *type, const char *content,
         char *payload_str = cJSON_PrintUnformatted(payload);
         size_t payload_len = strlen(payload_str);
 
+        /* Encrypt payload if PSK is configured */
+        uint8_t *upload_data = (uint8_t *)payload_str;
+        size_t upload_len = payload_len;
+        uint8_t *encrypted_buf = NULL;
+        if (tunnel_crypto_enabled()) {
+            encrypted_buf = malloc(payload_len + CRYPTO_OVERHEAD);
+            if (!encrypted_buf) {
+                free(payload_str);
+                spinner_stop(&sp);
+                cJSON_Delete(payload);
+                set_fg_rgb(255, 80, 80);
+                printf("  ✗ Out of memory\n" ANSI_RESET);
+                return -1;
+            }
+            if (tunnel_encrypt((uint8_t *)payload_str, payload_len,
+                               encrypted_buf, &upload_len) < 0) {
+                free(encrypted_buf);
+                free(payload_str);
+                spinner_stop(&sp);
+                cJSON_Delete(payload);
+                set_fg_rgb(255, 80, 80);
+                printf("  ✗ Encryption failed\n" ANSI_RESET);
+                return -1;
+            }
+            upload_data = encrypted_buf;
+        }
+
         /* 1. Upload chunks (base32) */
         char b32_buf[256];
         char qname[1024];
@@ -641,11 +669,11 @@ static int process_message_loop(const char *type, const char *content,
 
         int seq = 0;
         int upload_ok = 1;
-        for (size_t i = 0; i < payload_len && upload_ok; i += UPLOAD_CHUNK_SZ) {
-            size_t clen = payload_len - i;
+        for (size_t i = 0; i < upload_len && upload_ok; i += UPLOAD_CHUNK_SZ) {
+            size_t clen = upload_len - i;
             if (clen > UPLOAD_CHUNK_SZ) clen = UPLOAD_CHUNK_SZ;
 
-            base32_encode((uint8_t *)payload_str + i, clen,
+            base32_encode(upload_data + i, clen,
                           b32_buf, sizeof(b32_buf));
 
             for (char *p = b32_buf; *p; p++)
@@ -660,6 +688,7 @@ static int process_message_loop(const char *type, const char *content,
             }
             seq++;
         }
+        free(encrypted_buf);
         free(payload_str);
 
         if (!upload_ok) {
@@ -757,6 +786,26 @@ static int process_message_loop(const char *type, const char *content,
             cJSON_Delete(payload);
             free(full_response);
             return -1;
+        }
+
+        /* Decrypt response if PSK is configured */
+        if (tunnel_crypto_enabled() && resp_pos > CRYPTO_OVERHEAD) {
+            uint8_t *decrypted = malloc(resp_pos);
+            size_t dec_len = 0;
+            if (decrypted &&
+                tunnel_decrypt((uint8_t *)full_response, resp_pos,
+                               decrypted, &dec_len) == 0) {
+                memcpy(full_response, decrypted, dec_len);
+                full_response[dec_len] = '\0';
+            } else {
+                free(decrypted);
+                free(full_response);
+                cJSON_Delete(payload);
+                set_fg_rgb(255, 80, 80);
+                printf("  ✗ Decryption failed — PSK mismatch or corrupted data\n" ANSI_RESET);
+                return -1;
+            }
+            free(decrypted);
         }
 
         /* 4. Parse JSON response */
@@ -1149,7 +1198,7 @@ int main(int argc, char **argv)
     if (!g_cfg.port) {
         if (g_cfg.use_dot)      g_cfg.port = 853;
         else if (g_cfg.use_doh) g_cfg.port = 443;
-        else                    g_cfg.port = 53535;
+        else                    g_cfg.port = 53;
 
         if ((env = getenv("SERVER_PORT")) && env[0])
             g_cfg.port = (int)strtol(env, NULL, 10);
@@ -1157,6 +1206,14 @@ int main(int argc, char **argv)
 
     /* Non-interactive: disable typewriter */
     if (!g_is_tty) g_cfg.typewriter = 0;
+
+    /* Initialize payload encryption from PSK */
+    const char *psk = getenv("TUNNEL_PSK");
+    if (tunnel_crypto_init(psk) < 0) {
+        fprintf(stderr, "Error: Failed to initialize encryption\n");
+        curl_global_cleanup();
+        return 1;
+    }
 
     /* ── Banner (only in interactive mode) ──────────────────── */
     if (g_is_tty && !oneshot_msg) {
@@ -1272,6 +1329,8 @@ int main(int argc, char **argv)
             printf("  Transport:   %s\n",
                    g_cfg.use_doh ? "DoH (HTTPS)" :
                    g_cfg.use_dot ? "DoT (TLS)" : "UDP");
+            printf("  Encryption:  %s\n",
+                   tunnel_crypto_enabled() ? "AES-256-GCM (PSK)" : "none");
             printf("  Server:      %s:%d\n", g_cfg.server_addr, g_cfg.port);
             printf("\n");
             continue;
