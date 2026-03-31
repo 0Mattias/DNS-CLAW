@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <curl/curl.h>
 #include <cJSON.h>
@@ -37,11 +38,39 @@ const char *PROVIDER_DEFAULT_MODELS[] = {
 };
 
 static const char *DEFAULT_SYSTEM_PROMPT =
-    "You are a remote, DNS-based AI agent. You have the ability to execute "
-    "terminal commands on the user's machine by calling the client_execute_bash "
-    "tool. You can also read files using client_read_file. When the user asks "
-    "you to do something to their local system, utilize your tools. Format all "
-    "outputs nicely using markdown.";
+    "You are an agentic AI assistant running through a DNS tunnel (DNS-CLAW). "
+    "You have direct access to the user's local machine through tools.\n\n"
+    "# Tools\n"
+    "You have these tools — use them proactively:\n"
+    "- `client_execute_bash` — Run any shell command. Use for: git, builds, "
+    "tests, package managers, system info, anything CLI.\n"
+    "- `client_read_file` — Read file contents. Use to understand code before "
+    "modifying it.\n"
+    "- `client_write_file` — Create or overwrite a file.\n"
+    "- `client_edit_file` — Surgical find-and-replace within a file. Preferred "
+    "over write_file for modifying existing files — it only changes what needs "
+    "changing.\n"
+    "- `client_list_directory` — List files and directories with sizes.\n"
+    "- `client_search_files` — Grep/search file contents recursively. Use to "
+    "find definitions, usages, patterns across a codebase.\n"
+    "- `client_fetch_url` — HTTP GET a URL and return the body. Use for APIs, "
+    "docs, or web content.\n\n"
+    "# Behavior\n"
+    "- **Be agentic**: When asked to do something, DO it with tools. Don't just "
+    "explain how — execute commands, read code, make changes.\n"
+    "- **Read before writing**: Always read a file before modifying it. Use "
+    "client_edit_file for surgical changes, client_write_file only for new files "
+    "or complete rewrites.\n"
+    "- **Explore first**: When working on unfamiliar code, use list_directory "
+    "and search_files to understand the structure before diving in.\n"
+    "- **Chain tools**: Complex tasks require multiple tool calls. Plan your "
+    "approach, then execute step by step.\n"
+    "- **Verify your work**: After making changes, run tests or builds to confirm "
+    "things work.\n"
+    "- **Be concise**: Format output with markdown. Use code blocks for code, "
+    "headers for sections. Don't be verbose.\n"
+    "- **Handle errors**: If a command fails, read the error, diagnose it, and "
+    "try a different approach.\n";
 
 static const char *get_system_prompt(void)
 {
@@ -54,26 +83,51 @@ static const char *get_system_prompt(void)
 
 const tool_def_t TOOL_DEFS[] = {
     {"client_execute_bash",
-     "Executes a bash command on the client's local machine and returns "
-     "stdout/stderr.",
+     "Execute a shell command on the user's machine. Returns stdout+stderr. "
+     "Use for: git, builds, tests, installs, system info, any CLI operation.",
      {{"command", "The bash command to execute."}},
      1, {"command"}, 1},
 
     {"client_read_file",
-     "Reads a file on the client's local machine.",
-     {{"filepath", "Path to the file."}},
+     "Read a file's contents. Always read before modifying.",
+     {{"filepath", "Absolute or relative path to the file."}},
      1, {"filepath"}, 1},
 
     {"client_write_file",
-     "Writes content to a file on the client's local machine. Creates or "
-     "overwrites.",
-     {{"filepath", "Path to write to."}, {"content", "Content to write."}},
+     "Create a new file or completely overwrite an existing one. For surgical "
+     "edits to existing files, prefer client_edit_file instead.",
+     {{"filepath", "Path to write to."}, {"content", "Full file content."}},
      2, {"filepath", "content"}, 2},
 
     {"client_list_directory",
-     "Lists files and directories at a given path on the client's machine.",
+     "List files and subdirectories with type and size info.",
      {{"path", "Directory path to list. Defaults to current dir."}},
      1, {NULL}, 0},
+
+    {"client_edit_file",
+     "Apply a find-and-replace edit to an existing file. The old_string must "
+     "match exactly (including whitespace/indentation). Only the first "
+     "occurrence is replaced. Use this for surgical changes instead of "
+     "rewriting entire files.",
+     {{"filepath", "Path to the file to edit."},
+      {"old_string", "Exact text to find (must be unique in the file)."},
+      {"new_string", "Replacement text."}},
+     3, {"filepath", "old_string", "new_string"}, 3},
+
+    {"client_search_files",
+     "Search file contents recursively using a pattern (grep -rn). Returns "
+     "matching lines with file paths and line numbers. Use to find "
+     "definitions, usages, imports, or any text pattern in a codebase.",
+     {{"pattern", "Search pattern (basic regex)."},
+      {"path", "Directory to search in. Defaults to current dir."},
+      {"include", "File glob filter, e.g. '*.c' or '*.py'. Optional."}},
+     3, {"pattern"}, 1},
+
+    {"client_fetch_url",
+     "Fetch the contents of a URL via HTTP GET. Returns the response body. "
+     "Use for documentation, APIs, or web content.",
+     {{"url", "The URL to fetch."}},
+     1, {"url"}, 1},
 };
 
 /* ── Curl helpers ────────────────────────────────────────────────────────── */
@@ -103,50 +157,73 @@ static size_t curl_write_cb(void *ptr, size_t size, size_t nmemb, void *ud)
     return total;
 }
 
-/* Generic HTTP POST — returns parsed JSON or NULL */
+/* Generic HTTP POST with retry — returns parsed JSON or NULL */
 static cJSON *llm_http_post(const char *url, struct curl_slist *extra_headers,
                             const char *body_str)
 {
-    CURL *curl = curl_easy_init();
-    if (!curl) return NULL;
+    int max_retries = 3;
+    unsigned int backoff_ms = 1000;
 
-    struct curl_buf resp = { .data = malloc(4096), .len = 0, .cap = 4096 };
-    if (!resp.data) { curl_easy_cleanup(curl); return NULL; }
+    for (int attempt = 0; attempt < max_retries; attempt++) {
+        if (attempt > 0) {
+            log_warn("http", "Retry %d/%d after %ums...",
+                     attempt, max_retries - 1, backoff_ms);
+            usleep(backoff_ms * 1000);
+            backoff_ms *= 2;
+        }
 
-    struct curl_slist *headers = NULL;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    for (struct curl_slist *h = extra_headers; h; h = h->next)
-        headers = curl_slist_append(headers, h->data);
+        CURL *curl = curl_easy_init();
+        if (!curl) return NULL;
 
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
+        struct curl_buf resp = { .data = malloc(4096), .len = 0, .cap = 4096 };
+        if (!resp.data) { curl_easy_cleanup(curl); return NULL; }
 
-    CURLcode res = curl_easy_perform(curl);
-    long http_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        struct curl_slist *headers = NULL;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        for (struct curl_slist *h = extra_headers; h; h = h->next)
+            headers = curl_slist_append(headers, h->data);
 
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_str);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
 
-    if (res != CURLE_OK) {
-        log_err("http", "curl error: %s", curl_easy_strerror(res));
+        CURLcode res = curl_easy_perform(curl);
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+
+        if (res != CURLE_OK) {
+            log_err("http", "curl error: %s", curl_easy_strerror(res));
+            free(resp.data);
+            continue;  /* retry on network errors */
+        }
+
+        /* Retry on 429 (rate limit) and 5xx (server errors) */
+        if (http_code == 429 || (http_code >= 500 && http_code < 600)) {
+            log_err("http", "HTTP %ld (retryable): %.200s", http_code, resp.data);
+            free(resp.data);
+            continue;
+        }
+
+        if (http_code != 200) {
+            log_err("http", "HTTP %ld: %.500s", http_code, resp.data);
+            free(resp.data);
+            return NULL;  /* non-retryable error */
+        }
+
+        cJSON *json = cJSON_Parse(resp.data);
         free(resp.data);
-        return NULL;
-    }
-    if (http_code != 200) {
-        log_err("http", "HTTP %ld: %.500s", http_code, resp.data);
-        free(resp.data);
-        return NULL;
+        return json;
     }
 
-    cJSON *json = cJSON_Parse(resp.data);
-    free(resp.data);
-    return json;
+    log_err("http", "All %d attempts failed", max_retries);
+    return NULL;
 }
 
 /* ── Tool builders (from TOOL_DEFS table) ────────────────────────────────── */

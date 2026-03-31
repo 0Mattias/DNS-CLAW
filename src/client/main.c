@@ -217,7 +217,7 @@ int main(int argc, char **argv)
     printf("  Type a message, /help for commands, Ctrl+C to interrupt.\n");
     printf(ANSI_RESET "\n");
 
-    char input[4096];
+    char input[65536];
 
     for (;;) {
         g_interrupted = 0;
