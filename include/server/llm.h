@@ -40,7 +40,7 @@ typedef struct {
 } tool_def_t;
 
 extern const tool_def_t TOOL_DEFS[];
-#define NUM_TOOLS 4
+#define NUM_TOOLS 7
 
 /* ── LLM thread task ─────────────────────────────────────────────────────── */
 

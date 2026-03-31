@@ -410,11 +410,11 @@ int process_message_loop(const char *type, const char *content,
                     set_fg_rgb(THEME_DIM);
                     printf("  │ ");
                     set_fg_rgb(THEME_R3);
-                    printf("📄 %s\n" ANSI_RESET, fpath);
-                    warn_suspicious_path(fpath);
+                    printf("📄 %s" ANSI_RESET, fpath);
 
                     FILE *fp = fopen(fpath, "r");
                     if (!fp) {
+                        printf("\n");
                         snprintf(tool_result, sizeof(tool_result),
                                  "Error: %s", strerror(errno));
                     } else {
@@ -422,7 +422,9 @@ int process_message_loop(const char *type, const char *content,
                                              sizeof(tool_result) - 1, fp);
                         tool_result[total] = '\0';
                         fclose(fp);
-                        if (strlen(tool_result) > TOOL_RESULT_SIZE - 16) {
+                        set_fg_rgb(THEME_DIM);
+                        printf(" (%zu bytes)\n" ANSI_RESET, total);
+                        if (total > TOOL_RESULT_SIZE - 16) {
                             snprintf(tool_result + TOOL_RESULT_SIZE - 16, 16,
                                      "\n...[truncated]");
                         }
@@ -489,55 +491,232 @@ int process_message_loop(const char *type, const char *content,
                 set_fg_rgb(THEME_R3);
                 printf("📁 %s\n" ANSI_RESET, dpath);
 
-                printf("  ");
-                set_fg_rgb(THEME_R4);
-                printf("  Allow listing? " ANSI_RESET);
-                set_fg_rgb(THEME_R2);
-                printf("[Y]es");
-                printf(ANSI_RESET " / ");
-                set_fg_rgb(THEME_DIM);
-                printf("[n]o" ANSI_RESET ": ");
-                fflush(stdout);
-
-                char confirm[32] = {0};
-                if (fgets(confirm, sizeof(confirm), stdin)) {
-                    char *c = confirm;
-                    while (*c == ' ') c++;
-                    if (c[0] == 'y' || c[0] == 'Y' ||
-                        c[0] == '\n' || c[0] == '\0') {
-                        DIR *dir = opendir(dpath);
-                        if (!dir) {
-                            snprintf(tool_result, sizeof(tool_result),
-                                     "Error: %s", strerror(errno));
+                DIR *dir = opendir(dpath);
+                if (!dir) {
+                    snprintf(tool_result, sizeof(tool_result),
+                             "Error: %s", strerror(errno));
+                } else {
+                    struct dirent *ent;
+                    size_t pos = 0;
+                    while ((ent = readdir(dir)) != NULL && pos < sizeof(tool_result) - 300) {
+                        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+                            continue;
+                        char fullpath[1024];
+                        snprintf(fullpath, sizeof(fullpath), "%s/%s", dpath, ent->d_name);
+                        struct stat st;
+                        const char *type_str = "";
+                        if (stat(fullpath, &st) == 0) {
+                            if (S_ISDIR(st.st_mode)) type_str = "dir  ";
+                            else                     type_str = "file ";
+                            pos += (size_t)snprintf(tool_result + pos,
+                                sizeof(tool_result) - pos,
+                                "%s %8lld  %s\n",
+                                type_str, (long long)st.st_size, ent->d_name);
                         } else {
-                            struct dirent *ent;
-                            size_t pos = 0;
-                            while ((ent = readdir(dir)) != NULL && pos < sizeof(tool_result) - 300) {
-                                if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
-                                    continue;
-                                char fullpath[1024];
-                                snprintf(fullpath, sizeof(fullpath), "%s/%s", dpath, ent->d_name);
-                                struct stat st;
-                                const char *type_str = "";
-                                if (stat(fullpath, &st) == 0) {
-                                    if (S_ISDIR(st.st_mode)) type_str = "dir  ";
-                                    else                     type_str = "file ";
-                                    pos += (size_t)snprintf(tool_result + pos,
-                                        sizeof(tool_result) - pos,
-                                        "%s %8lld  %s\n",
-                                        type_str, (long long)st.st_size, ent->d_name);
+                            pos += (size_t)snprintf(tool_result + pos,
+                                sizeof(tool_result) - pos,
+                                "???   %s\n", ent->d_name);
+                        }
+                    }
+                    closedir(dir);
+                    if (pos == 0)
+                        snprintf(tool_result, sizeof(tool_result), "(empty directory)");
+                }
+
+            } else if (fn && strcmp(fn, "client_edit_file") == 0) {
+                const char *fpath = cJSON_GetStringValue(
+                    cJSON_GetObjectItem(args, "filepath"));
+                const char *old_str = cJSON_GetStringValue(
+                    cJSON_GetObjectItem(args, "old_string"));
+                const char *new_str = cJSON_GetStringValue(
+                    cJSON_GetObjectItem(args, "new_string"));
+                if (!fpath || !old_str || !new_str) {
+                    snprintf(tool_result, sizeof(tool_result),
+                             "Error: Missing filepath, old_string, or new_string");
+                } else {
+                    set_fg_rgb(THEME_DIM);
+                    printf("  │ ");
+                    set_fg_rgb(THEME_R3);
+                    printf("✏️  Editing: %s\n" ANSI_RESET, fpath);
+                    warn_suspicious_path(fpath);
+
+                    printf("  ");
+                    set_fg_rgb(THEME_R4);
+                    printf("  Allow edit? " ANSI_RESET);
+                    set_fg_rgb(THEME_R2);
+                    printf("[Y]es");
+                    printf(ANSI_RESET " / ");
+                    set_fg_rgb(THEME_DIM);
+                    printf("[n]o" ANSI_RESET ": ");
+                    fflush(stdout);
+
+                    char confirm[32] = {0};
+                    if (fgets(confirm, sizeof(confirm), stdin)) {
+                        char *c = confirm;
+                        while (*c == ' ') c++;
+                        if (c[0] == 'y' || c[0] == 'Y' ||
+                            c[0] == '\n' || c[0] == '\0') {
+                            /* Read file */
+                            FILE *fp = fopen(fpath, "r");
+                            if (!fp) {
+                                snprintf(tool_result, sizeof(tool_result),
+                                         "Error: %s", strerror(errno));
+                            } else {
+                                fseek(fp, 0, SEEK_END);
+                                long fsize = ftell(fp);
+                                fseek(fp, 0, SEEK_SET);
+                                if (fsize < 0 || fsize > 10 * 1024 * 1024) {
+                                    snprintf(tool_result, sizeof(tool_result),
+                                             "Error: File too large (%ld bytes)", fsize);
+                                    fclose(fp);
                                 } else {
-                                    pos += (size_t)snprintf(tool_result + pos,
-                                        sizeof(tool_result) - pos,
-                                        "???   %s\n", ent->d_name);
+                                    char *content = malloc((size_t)fsize + 1);
+                                    if (!content) {
+                                        snprintf(tool_result, sizeof(tool_result),
+                                                 "Error: Out of memory");
+                                        fclose(fp);
+                                    } else {
+                                        size_t rd = fread(content, 1, (size_t)fsize, fp);
+                                        content[rd] = '\0';
+                                        fclose(fp);
+
+                                        char *match = strstr(content, old_str);
+                                        if (!match) {
+                                            snprintf(tool_result, sizeof(tool_result),
+                                                     "Error: old_string not found in file");
+                                        } else {
+                                            /* Check uniqueness */
+                                            char *second = strstr(match + 1, old_str);
+                                            if (second) {
+                                                snprintf(tool_result, sizeof(tool_result),
+                                                         "Error: old_string matches multiple "
+                                                         "locations — provide more context to "
+                                                         "make it unique");
+                                            } else {
+                                                size_t old_len = strlen(old_str);
+                                                size_t new_len = strlen(new_str);
+                                                size_t prefix_len = (size_t)(match - content);
+                                                size_t suffix_len = rd - prefix_len - old_len;
+                                                size_t new_size = prefix_len + new_len + suffix_len;
+                                                char *result = malloc(new_size + 1);
+                                                if (!result) {
+                                                    snprintf(tool_result, sizeof(tool_result),
+                                                             "Error: Out of memory");
+                                                } else {
+                                                    memcpy(result, content, prefix_len);
+                                                    memcpy(result + prefix_len, new_str, new_len);
+                                                    memcpy(result + prefix_len + new_len,
+                                                           match + old_len, suffix_len);
+                                                    result[new_size] = '\0';
+
+                                                    FILE *wfp = fopen(fpath, "w");
+                                                    if (!wfp) {
+                                                        snprintf(tool_result, sizeof(tool_result),
+                                                                 "Error: %s", strerror(errno));
+                                                    } else {
+                                                        fwrite(result, 1, new_size, wfp);
+                                                        fclose(wfp);
+                                                        snprintf(tool_result, sizeof(tool_result),
+                                                                 "Applied edit to %s (%zu bytes → %zu bytes)",
+                                                                 fpath, rd, new_size);
+                                                    }
+                                                    free(result);
+                                                }
+                                            }
+                                        }
+                                        free(content);
+                                    }
                                 }
                             }
-                            closedir(dir);
-                            if (pos == 0)
-                                snprintf(tool_result, sizeof(tool_result), "(empty directory)");
+                        } else {
+                            snprintf(tool_result, sizeof(tool_result),
+                                     "User rejected file edit.");
                         }
+                    }
+                }
+
+            } else if (fn && strcmp(fn, "client_search_files") == 0) {
+                const char *pattern = cJSON_GetStringValue(
+                    cJSON_GetObjectItem(args, "pattern"));
+                const char *spath = cJSON_GetStringValue(
+                    cJSON_GetObjectItem(args, "path"));
+                const char *include = cJSON_GetStringValue(
+                    cJSON_GetObjectItem(args, "include"));
+                if (!pattern) {
+                    snprintf(tool_result, sizeof(tool_result),
+                             "Error: Missing pattern");
+                } else {
+                    if (!spath || !spath[0]) spath = ".";
+                    set_fg_rgb(THEME_DIM);
+                    printf("  │ ");
+                    set_fg_rgb(THEME_R3);
+                    printf("🔍 grep '%s' in %s", pattern, spath);
+                    if (include) printf(" (%s)", include);
+                    printf("\n" ANSI_RESET);
+
+                    char cmd[4096];
+                    if (include) {
+                        snprintf(cmd, sizeof(cmd),
+                                 "grep -rn --include='%s' -- '%s' '%s' 2>&1 | head -200",
+                                 include, pattern, spath);
                     } else {
-                        snprintf(tool_result, sizeof(tool_result), "User rejected directory listing.");
+                        snprintf(cmd, sizeof(cmd),
+                                 "grep -rn -- '%s' '%s' 2>&1 | head -200",
+                                 pattern, spath);
+                    }
+                    FILE *proc = popen(cmd, "r");
+                    if (!proc) {
+                        snprintf(tool_result, sizeof(tool_result),
+                                 "Error: popen failed: %s", strerror(errno));
+                    } else {
+                        size_t total = 0;
+                        while (total < sizeof(tool_result) - 1) {
+                            size_t n = fread(tool_result + total, 1,
+                                             sizeof(tool_result) - 1 - total, proc);
+                            if (n == 0) break;
+                            total += n;
+                        }
+                        tool_result[total] = '\0';
+                        pclose(proc);
+                        if (total == 0)
+                            snprintf(tool_result, sizeof(tool_result),
+                                     "(no matches)");
+                    }
+                }
+
+            } else if (fn && strcmp(fn, "client_fetch_url") == 0) {
+                const char *url = cJSON_GetStringValue(
+                    cJSON_GetObjectItem(args, "url"));
+                if (!url) {
+                    snprintf(tool_result, sizeof(tool_result),
+                             "Error: Missing url");
+                } else {
+                    set_fg_rgb(THEME_DIM);
+                    printf("  │ ");
+                    set_fg_rgb(THEME_R3);
+                    printf("🌐 %s\n" ANSI_RESET, url);
+
+                    char cmd[4096];
+                    snprintf(cmd, sizeof(cmd),
+                             "curl -sL --max-time 15 --max-filesize 1048576 '%s' 2>&1",
+                             url);
+                    FILE *proc = popen(cmd, "r");
+                    if (!proc) {
+                        snprintf(tool_result, sizeof(tool_result),
+                                 "Error: popen failed: %s", strerror(errno));
+                    } else {
+                        size_t total = 0;
+                        while (total < sizeof(tool_result) - 1) {
+                            size_t n = fread(tool_result + total, 1,
+                                             sizeof(tool_result) - 1 - total, proc);
+                            if (n == 0) break;
+                            total += n;
+                        }
+                        tool_result[total] = '\0';
+                        pclose(proc);
+                        if (total == 0)
+                            snprintf(tool_result, sizeof(tool_result),
+                                     "(empty response)");
                     }
                 }
 

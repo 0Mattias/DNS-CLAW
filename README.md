@@ -2,7 +2,7 @@
 
 **C Language Agentic Wireformat** — An agentic AI CLI tunneled through DNS, written in pure C.
 
-Talk to LLMs through DNS queries. The client encodes your messages as Base32 TXT record lookups, the server decodes them, calls your LLM provider, and sends responses back as chunked TXT records. Supports tool use — the model can run commands on your machine (with approval), read/write files, and list directories.
+Talk to LLMs through DNS queries. The client encodes your messages as Base32 TXT record lookups, the server decodes them, calls your LLM provider, and sends responses back as chunked TXT records. Fully agentic — the model can run commands, read/write/edit files, search codebases, and fetch URLs on your machine.
 
 Supports **Gemini**, **OpenAI**, **Claude (Anthropic)**, and **OpenRouter**.
 
@@ -117,6 +117,22 @@ The server logs all activity to stderr with colored output:
 [init]   New session: a1b2c3d4
 [llm]    Processing sid=a1b2c3d4 mid=1 type=user
 ```
+
+## Agent Tools
+
+The LLM has access to 7 tools for interacting with the client's machine:
+
+| Tool | Description | Approval |
+|---|---|---|
+| `client_execute_bash` | Run any shell command | **Requires approval** |
+| `client_read_file` | Read file contents | Auto-approved |
+| `client_write_file` | Create/overwrite a file | **Requires approval** |
+| `client_edit_file` | Surgical find-and-replace in a file | **Requires approval** |
+| `client_list_directory` | List directory contents with sizes | Auto-approved |
+| `client_search_files` | Recursive grep with file filtering | Auto-approved |
+| `client_fetch_url` | HTTP GET a URL | Auto-approved |
+
+Safe read-only tools run automatically. Destructive tools (bash, write, edit) prompt for `[Y/n]` confirmation.
 
 ## Configuration
 
@@ -237,7 +253,7 @@ Generate self-signed certs for DoT/DoH:
 - **Multi-provider** — Gemini, OpenAI, Claude (Anthropic), OpenRouter with auto-detection
 - **Payload encryption** — AES-256-GCM with PSK defeats DPI on captive portals and public WiFi
 - **Three transports** — Plain UDP (port 53), DNS-over-TLS (port 853), DNS-over-HTTPS (port 443)
-- **Agentic tools** — `client_execute_bash`, `client_read_file`, `client_write_file`, `client_list_directory` with user approval prompts
+- **7 agentic tools** — `execute_bash`, `read_file`, `write_file`, `edit_file` (surgical find-and-replace), `list_directory`, `search_files` (recursive grep), `fetch_url` — safe tools auto-approve, destructive ones prompt
 - **Rich terminal UI** — Gradient ASCII banner, async spinners, full ANSI markdown rendering (bold, italic, code, headers, lists, code blocks)
 - **One-shot mode** — `dnsclaw -m "what is 2+2"` for scripting
 - **Pipe support** — `echo "explain this" | dnsclaw`
@@ -297,7 +313,7 @@ sudo -E ./build/dnsclaw-server   # terminal 1
 ├── src/
 │   ├── client/          # CLI client (REPL, one-shot, pipe modes)
 │   │   ├── main.c       # Entry point, arg parsing, REPL loop
-│   │   ├── protocol.c   # DNS query wrapper, message processing, tool execution
+│   │   ├── protocol.c   # DNS query wrapper, message processing, 7-tool executor
 │   │   ├── render.c     # ANSI markdown renderer
 │   │   ├── spinner.c    # Async activity spinner
 │   │   └── ui.c         # Banner, help text

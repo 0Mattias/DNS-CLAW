@@ -17,7 +17,7 @@
 /* Session & chunk limits (must match on both sides) */
 #define MAX_SESSIONS     64
 #define MAX_CHUNKS       256
-#define MAX_RESP_CHUNKS  512
+#define MAX_RESP_CHUNKS  4096
 #define CHUNK_SIZE       200   /* base64 chars per TXT response chunk */
 #define MAX_MSG_IDS      256   /* max concurrent message IDs per session */
 #define UPLOAD_B32_MAX   (MAX_CHUNKS * 256)  /* max reassembled base32 data */
@@ -29,9 +29,9 @@
 #define UPLOAD_CHUNK_SZ  35   /* base32(35 bytes) = 56 chars, fits DNS 63-char label */
 
 /* Response buffer */
-#define RESP_BUF_SIZE    131072  /* 128KB response buffer */
+#define RESP_BUF_SIZE    1048576  /* 1MB response buffer */
 
 /* Tool result size limit */
-#define TOOL_RESULT_SIZE 8192
+#define TOOL_RESULT_SIZE 65536
 
 #endif /* CLAW_PROTOCOL_H */
