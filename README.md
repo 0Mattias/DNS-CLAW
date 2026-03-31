@@ -244,10 +244,7 @@ Encryption is optional — omit `TUNNEL_PSK` and the system works unencrypted. W
 
 For DoH, set `DNS_SERVER_ADDR=https://127.0.0.1/dns-query` (the full URL). For UDP and DoT, use just `127.0.0.1`.
 
-Generate self-signed certs for DoT/DoH:
-```bash
-./generate_certs.sh
-```
+TLS certs for DoT/DoH are generated automatically by `./setup.sh` when you select a TLS transport.
 
 ## Features
 
@@ -292,9 +289,6 @@ cmake --build build
 mkdir -p ~/.config/dnsclaw
 cp .env.example ~/.config/dnsclaw/.env
 # Edit: set your API key and TUNNEL_PSK
-
-# Generate TLS certs (only for DoT/DoH)
-./generate_certs.sh
 
 # Run
 sudo -E ./build/dnsclaw-server   # terminal 1
@@ -370,8 +364,7 @@ A `.clang-format` config is included (LLVM-based, 4-space indent, 100-column lim
 ├── include/             # Header files
 ├── .github/workflows/   # CI (GitHub Actions)
 ├── CMakeLists.txt       # Build system (auto-fetches cJSON)
-├── setup.sh             # First-run setup script
-├── generate_certs.sh    # TLS certificate generator
+├── setup.sh             # First-run setup script (also generates TLS certs)
 ├── .clang-format        # Code style config
 ├── .env.example         # Configuration template
 └── LICENSE              # MIT
