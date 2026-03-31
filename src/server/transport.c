@@ -5,6 +5,7 @@
 
 #include <arpa/inet.h>
 #include <ctype.h>
+#include <errno.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -58,6 +59,12 @@ void *udp_server_thread(void *arg)
 
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         perror("bind");
+        if (errno == EACCES && g_config.port < 1024)
+            fprintf(stderr,
+                "[udp] Port %d requires root. "
+                "Try: sudo -E dnsclaw-server  "
+                "or set SERVER_PORT to a port >= 1024\n",
+                g_config.port);
         close(fd);
         return NULL;
     }
@@ -165,6 +172,12 @@ void *dot_server_thread(void *arg)
 
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         perror("bind");
+        if (errno == EACCES && g_config.port < 1024)
+            fprintf(stderr,
+                "[dot] Port %d requires root. "
+                "Try: sudo -E dnsclaw-server  "
+                "or set SERVER_PORT to a port >= 1024\n",
+                g_config.port);
         close(fd);
         SSL_CTX_free(ctx);
         return NULL;
@@ -343,6 +356,12 @@ void *doh_server_thread(void *arg)
 
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         perror("bind (DoH)");
+        if (errno == EACCES && g_config.port < 1024)
+            fprintf(stderr,
+                "[doh] Port %d requires root. "
+                "Try: sudo -E dnsclaw-server  "
+                "or set SERVER_PORT to a port >= 1024\n",
+                g_config.port);
         close(fd);
         SSL_CTX_free(ctx);
         return NULL;

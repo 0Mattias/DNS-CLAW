@@ -87,10 +87,12 @@ int main(void)
     /* Load .env from multiple locations (first match wins per variable).
      * When running under sudo, HOME may be /var/root — also check
      * SUDO_USER's home so config written by setup.sh is found. */
+    int dotenv_found = 0;
     const char *home = getenv("HOME");
     if (home) {
         char config_env[512];
         snprintf(config_env, sizeof(config_env), "%s/.config/dnsclaw/.env", home);
+        if (access(config_env, R_OK) == 0) dotenv_found = 1;
         load_dotenv(config_env);
     }
     const char *sudo_user = getenv("SUDO_USER");
@@ -100,10 +102,13 @@ int main(void)
         if (pw && pw->pw_dir) {
             snprintf(sudo_env, sizeof(sudo_env),
                      "%s/.config/dnsclaw/.env", pw->pw_dir);
+            if (access(sudo_env, R_OK) == 0) dotenv_found = 1;
             load_dotenv(sudo_env);
         }
     }
+    if (access("../.env", R_OK) == 0) dotenv_found = 1;
     load_dotenv("../.env");
+    if (access(".env", R_OK) == 0) dotenv_found = 1;
     load_dotenv(".env");
 
     /* ── Multi-Provider Detection ─────────────────────────────────────────── */
@@ -181,9 +186,36 @@ int main(void)
             }
         }
 
-        /* No API key found — direct user to setup tools */
+        /* No API key found — diagnose and direct user to setup tools */
         if (!provider_found) {
             log_err("FATAL", "No API key configured.");
+            fprintf(stderr, "\n");
+
+            /* Diagnose common causes */
+            if (!dotenv_found) {
+                fprintf(stderr, "  " CLR_R4 "Cause:" CLR_RESET
+                    " No .env config file found.\n");
+                fprintf(stderr, "  Searched:\n");
+                if (home)
+                    fprintf(stderr, "    - %s/.config/dnsclaw/.env\n", home);
+                if (sudo_user && sudo_user[0]) {
+                    struct passwd *pw2 = getpwnam(sudo_user);
+                    if (pw2 && pw2->pw_dir)
+                        fprintf(stderr, "    - %s/.config/dnsclaw/.env"
+                            " (SUDO_USER=%s)\n", pw2->pw_dir, sudo_user);
+                }
+                fprintf(stderr, "    - ../.env\n");
+                fprintf(stderr, "    - ./.env\n");
+            } else if (geteuid() == 0 && !sudo_user) {
+                fprintf(stderr, "  " CLR_R4 "Hint:" CLR_RESET
+                    " Running as root without " CLR_R3 "sudo -E" CLR_RESET
+                    " — your user's .env may not be visible.\n");
+                fprintf(stderr, "  Try: " CLR_R3
+                    "sudo -E dnsclaw-server" CLR_RESET "\n");
+            } else {
+                fprintf(stderr, "  " CLR_R4 "Hint:" CLR_RESET
+                    " A .env file was found but it contains no API key.\n");
+            }
             fprintf(stderr, "\n");
             fprintf(stderr, "  To configure a provider, run one of:\n");
             fprintf(stderr, "    " CLR_R3 "./setup.sh" CLR_RESET
@@ -259,6 +291,7 @@ int main(void)
         if (custom_sp && custom_sp[0])
             log_info("config", "Prompt:    (custom, %zu chars)", strlen(custom_sp));
     }
+
     fprintf(stderr, "\n");
 
     /* Start session reaper */
