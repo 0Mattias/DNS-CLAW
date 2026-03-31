@@ -82,6 +82,7 @@ echo "explain this" | dnsclaw    # pipe mode
 | `/help` | Show available commands |
 | `/clear` | Start a new chat session |
 | `/compact [focus]` | Compress conversation context |
+| `/export [file]` | Export conversation to markdown file |
 | `/config` | Show current configuration |
 | `/status` | Show session ID, transport, encryption info |
 | `/exit` | Quit |
@@ -257,7 +258,9 @@ Generate self-signed certs for DoT/DoH:
 - **Rich terminal UI** — Gradient ASCII banner, async spinners, full ANSI markdown rendering (bold, italic, code, headers, lists, code blocks)
 - **One-shot mode** — `dnsclaw -m "what is 2+2"` for scripting
 - **Pipe support** — `echo "explain this" | dnsclaw`
-- **Session management** — `/clear`, `/compact`, `/status` commands; auto-reaping of idle sessions after 30 minutes
+- **Command history** — Arrow keys, line editing, persistent history across sessions (via libedit, auto-detected)
+- **Session management** — `/clear`, `/compact`, `/status`, `/export` commands; auto-reaping of idle sessions after 30 minutes
+- **Automatic retry** — DNS queries retry up to 3 times with exponential backoff on transient failures
 - **Zero SDK** — No Go, no Python, no Node — just C, libcurl, OpenSSL, and cJSON
 - **Hardened build** — `-D_FORTIFY_SOURCE=2`, `-fstack-protector-strong`, `-fPIE`, full RELRO on Linux; ASan/UBSan/TSan in CI
 
@@ -270,6 +273,7 @@ Generate self-signed certs for DoT/DoH:
 | OpenSSL 3.x | TLS + AES-256-GCM encryption | `brew install openssl@3` |
 | libcurl | HTTPS transport (DoH + LLM APIs) | `brew install curl` |
 | cJSON | JSON serialization | Auto-fetched by CMake |
+| libedit (optional) | Command history + line editing | `brew install libedit` / pre-installed on macOS |
 | Ninja (optional) | Faster builds | `brew install ninja` |
 
 ## Manual Setup

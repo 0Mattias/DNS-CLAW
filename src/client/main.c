@@ -11,7 +11,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
+
+#ifdef HAVE_LIBEDIT
+#include <histedit.h>
+#endif
 
 #include <curl/curl.h>
 
@@ -39,6 +44,60 @@ static void sigint_handler(int sig)
     }
     g_interrupted = 1;
     write(STDOUT_FILENO, "\n", 1);
+}
+
+#ifdef HAVE_LIBEDIT
+static const char *el_prompt_null(EditLine *e) { (void)e; return ""; }
+#endif
+
+/* ── Conversation export ─────────────────────────────────────────────────── */
+
+#define MAX_EXPORT_ENTRIES 4096
+static struct { const char *role; char *text; } g_export_log[MAX_EXPORT_ENTRIES];
+static int g_export_count = 0;
+
+void export_log_add(const char *role, const char *text)
+{
+    if (g_export_count >= MAX_EXPORT_ENTRIES) return;
+    g_export_log[g_export_count].role = role;
+    g_export_log[g_export_count].text = strdup(text);
+    g_export_count++;
+}
+
+static int export_conversation(const char *path)
+{
+    char filepath[512];
+    if (path && path[0]) {
+        strncpy(filepath, path, sizeof(filepath) - 1);
+        filepath[sizeof(filepath) - 1] = '\0';
+    } else {
+        time_t now = time(NULL);
+        struct tm *tm = localtime(&now);
+        snprintf(filepath, sizeof(filepath),
+                 "dnsclaw-chat-%04d%02d%02d-%02d%02d%02d.md",
+                 tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+                 tm->tm_hour, tm->tm_min, tm->tm_sec);
+    }
+
+    FILE *fp = fopen(filepath, "w");
+    if (!fp) return -1;
+
+    fprintf(fp, "# DNS-CLAW Conversation Export\n\n");
+    fprintf(fp, "**Session:** `%s`  \n", g_session_id);
+    fprintf(fp, "**Turns:** %d  \n\n---\n\n", g_turn);
+
+    for (int i = 0; i < g_export_count; i++) {
+        if (strcmp(g_export_log[i].role, "user") == 0) {
+            fprintf(fp, "## You\n\n%s\n\n", g_export_log[i].text);
+        } else {
+            fprintf(fp, "## Agent\n\n%s\n\n", g_export_log[i].text);
+        }
+    }
+    fclose(fp);
+
+    set_fg_rgb(THEME_R2);
+    printf("\n  ✓ Exported %d messages to %s\n" ANSI_RESET, g_export_count, filepath);
+    return 0;
 }
 
 /* ── Main ─────────────────────────────────────────────────────────────────── */
@@ -217,19 +276,64 @@ int main(int argc, char **argv)
     printf("  Type a message, /help for commands, Ctrl+C to interrupt.\n");
     printf(ANSI_RESET "\n");
 
+#ifdef HAVE_LIBEDIT
+    /* ── libedit setup (readline-compatible) ────────────────── */
+    HistEvent hev;
+    History *hist = history_init();
+    history(hist, &hev, H_SETSIZE, 500);
+
+    /* Load history from ~/.config/dnsclaw/history */
+    char hist_path[512] = {0};
+    if (home) {
+        snprintf(hist_path, sizeof(hist_path),
+                 "%s/.config/dnsclaw/history", home);
+        history(hist, &hev, H_LOAD, hist_path);
+    }
+
+    EditLine *el = el_init(argv[0], stdin, stdout, stderr);
+    el_set(el, EL_EDITOR, "emacs");
+    el_set(el, EL_HIST, history, hist);
+    el_set(el, EL_SIGNAL, 1);
+#endif
+
     char input[65536];
 
     for (;;) {
         g_interrupted = 0;
 
-        /* Prompt with turn counter */
-        set_fg_rgb(THEME_DIM);
-        printf(" %d ", g_turn + 1);
-        set_bg_rgb(THEME_R1);
-        set_fg_rgb(255, 255, 255);
-        printf(ANSI_BOLD " You " ANSI_RESET);
-        set_fg_rgb(THEME_R2);
-        printf(" ❯ " ANSI_RESET);
+        /* Build prompt string */
+        char prompt[256];
+        snprintf(prompt, sizeof(prompt),
+                 "\033[38;2;100;80;80m %d "
+                 "\033[48;2;255;60;50m\033[38;2;255;255;255m\033[1m You \033[0m"
+                 "\033[38;2;255;100;80m ❯ \033[0m",
+                 g_turn + 1);
+
+#ifdef HAVE_LIBEDIT
+        /* Print prompt ourselves (libedit prompt callbacks can't handle raw ANSI) */
+        printf("%s", prompt);
+        fflush(stdout);
+        el_set(el, EL_PROMPT, el_prompt_null);
+        int line_len = 0;
+        const char *line = el_gets(el, &line_len);
+        if (!line) {
+            if (g_interrupted) {
+                set_fg_rgb(THEME_DIM);
+                printf("\n  Goodbye.\n" ANSI_RESET);
+                break;
+            }
+            break;
+        }
+        if (g_interrupted) { g_interrupted = 0; continue; }
+
+        /* Copy to input buffer */
+        size_t ilen = (size_t)line_len;
+        if (ilen >= sizeof(input)) ilen = sizeof(input) - 1;
+        memcpy(input, line, ilen);
+        input[ilen] = '\0';
+#else
+        /* Fallback: basic fgets prompt */
+        printf("%s", prompt);
         fflush(stdout);
 
         if (!fgets(input, sizeof(input), stdin)) {
@@ -240,19 +344,21 @@ int main(int argc, char **argv)
             }
             break;
         }
-
-        if (g_interrupted) {
-            g_interrupted = 0;
-            continue;
-        }
+        if (g_interrupted) { g_interrupted = 0; continue; }
+        size_t ilen = strlen(input);
+#endif
 
         /* Trim */
-        size_t ilen = strlen(input);
         while (ilen > 0 && (input[ilen-1] == '\n' || input[ilen-1] == '\r'))
             input[--ilen] = '\0';
         char *text = input;
         while (*text == ' ' || *text == '\t') text++;
         if (text[0] == '\0') continue;
+
+#ifdef HAVE_LIBEDIT
+        /* Add to history (skip empty and duplicate) */
+        if (text[0]) history(hist, &hev, H_ENTER, text);
+#endif
 
         /* ── Commands ──────────────────────────────────────── */
         if (strcmp(text, "/exit") == 0 || strcmp(text, "/quit") == 0) {
@@ -291,6 +397,18 @@ int main(int argc, char **argv)
             printf("\n");
             continue;
         }
+        if (strncmp(text, "/export", 7) == 0) {
+            const char *path = text + 7;
+            while (*path == ' ') path++;
+            if (g_export_count == 0) {
+                set_fg_rgb(255, 200, 0);
+                printf("\n  No messages to export.\n" ANSI_RESET);
+            } else {
+                export_conversation(*path ? path : NULL);
+            }
+            printf("\n");
+            continue;
+        }
         if (strncmp(text, "/compact", 8) == 0) {
             const char *focus = text + 8;
             while (*focus == ' ') focus++;
@@ -312,9 +430,18 @@ int main(int argc, char **argv)
 
         g_turn++;
         g_interrupted = 0;
+        export_log_add("user", text);
         process_message_loop("user", text, NULL);
         printf("\n");
     }
+
+#ifdef HAVE_LIBEDIT
+    /* Save history */
+    if (hist_path[0])
+        history(hist, &hev, H_SAVE, hist_path);
+    history_end(hist);
+    el_end(el);
+#endif
 
     curl_global_cleanup();
     return 0;

@@ -42,11 +42,12 @@ void print_help(void)
         {"/help",            "Show this help"},
         {"/clear",           "Start a new chat session"},
         {"/compact [focus]", "Compact conversation context"},
+        {"/export [file]",   "Export conversation to markdown"},
         {"/config",          "Show current configuration"},
         {"/status",          "Show session info"},
         {"/exit",            "Exit the application"},
     };
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 7; i++) {
         set_fg_rgb(THEME_R2);
         printf("  %-20s", cmds[i][0]);
         printf(ANSI_RESET ANSI_DIM " %s\n" ANSI_RESET, cmds[i][1]);
