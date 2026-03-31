@@ -14,7 +14,9 @@ set(CMAKE_C_FLAGS_DEBUG "-g -O0 -fsanitize=address,undefined -fno-omit-frame-poi
 
 # cJSON (fetched at configure time — static only)
 include(FetchContent)
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+if(POLICY CMP0077)
+    cmake_policy(SET CMP0077 NEW)
+endif()
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(CJSON_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(CJSON_BUILD_SHARED_AND_STATIC_LIBS OFF CACHE BOOL "" FORCE)

@@ -162,7 +162,7 @@ case "$TRANSPORT" in
         ;;
     3)
         sed -i.bak 's/USE_DOH=false/USE_DOH=true/' "$ENV_FILE"
-        sed -i.bak 's|DNS_SERVER_ADDR=127.0.0.1|DNS_SERVER_ADDR=https://127.0.0.1/dns-query|' "$ENV_FILE"
+        sed -i.bak 's|^DNS_SERVER_ADDR=.*|DNS_SERVER_ADDR=https://127.0.0.1/dns-query|' "$ENV_FILE"
         rm -f "$ENV_FILE.bak"
         ok "Transport: DNS-over-HTTPS (port 443)"
         NEED_CERTS=1
