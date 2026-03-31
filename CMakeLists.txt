@@ -1,4 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
+# Allow cJSON's old cmake_minimum_required(VERSION 2.8.5) on newer CMake
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "")
 project(dns_claw C)
 
 set(CMAKE_C_STANDARD 11)
