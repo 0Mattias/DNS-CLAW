@@ -48,8 +48,9 @@ Tests cover the common library (base64, base32, crypto, dns_proto). CI runs on p
 ## Running
 
 ```bash
-# Server (port 53 requires root; -E preserves env vars for API keys)
-sudo -E ./build/dnsclaw-server
+# Server — on macOS port 53 works without root; on Linux it requires sudo
+./build/dnsclaw-server              # try without sudo first
+sudo -E ./build/dnsclaw-server      # if bind fails (-E preserves your .env config)
 
 # Client
 ./build/dnsclaw                  # interactive REPL
@@ -81,10 +82,13 @@ Client encrypts (AES-256-GCM) → Base32 encodes → DNS TXT query labels → Se
 
 Config loaded from (first match wins per variable):
 1. `~/.config/dnsclaw/.env`
-2. `./.env`
+2. `$SUDO_USER`'s `~/.config/dnsclaw/.env` (when running under sudo)
 3. `../.env`
+4. `./.env`
 
 Environment variables override all `.env` files. Key settings: `*_API_KEY`, `TUNNEL_PSK`, `USE_DOT`/`USE_DOH`, `DNS_SERVER_ADDR`. See `.env.example` for the full reference.
+
+When no API key is found, the server prints diagnostic output showing which `.env` paths were searched and the likely cause (missing file, sudo without `-E`, empty config). Bind failures on privileged ports suggest `sudo -E` or `SERVER_PORT` override.
 
 ## Security Patterns
 
