@@ -408,6 +408,7 @@ int dns_query_dot(const char *server_ip, uint16_t port,
     /* TLS handshake */
     SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
     if (!ctx) { close(fd); return -1; }
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
 
     if (insecure)
         SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);

@@ -881,7 +881,8 @@ void *process_llm_thread(void *arg)
     /* Parse JSON payload */
     cJSON *payload = cJSON_Parse((char *)payload_bytes);
     if (!payload) {
-        fprintf(stderr, "[llm] JSON parse failed: %s\n", (char *)payload_bytes);
+        fprintf(stderr, "[llm] JSON parse failed (len=%d): %.128s\n",
+                decoded_len, (char *)payload_bytes);
         pthread_mutex_lock(&g_lock);
         sess->responses[msg_id].failed = 1;
         pthread_mutex_unlock(&g_lock);
@@ -962,6 +963,7 @@ void *process_llm_thread(void *arg)
     pthread_mutex_lock(&g_lock);
     msg_response_t *mr = &sess->responses[msg_id];
 
+    int alloc_failed = 0;
     for (size_t i = 0; i < b64_total && nchunks < MAX_RESP_CHUNKS;
          i += CHUNK_SIZE) {
         size_t clen = b64_total - i;
@@ -969,6 +971,7 @@ void *process_llm_thread(void *arg)
         mr->chunks[nchunks] = malloc(clen + 1);
         if (!mr->chunks[nchunks]) {
             log_err("llm", "Out of memory allocating response chunk");
+            alloc_failed = 1;
             break;
         }
         memcpy(mr->chunks[nchunks], b64_buf + i, clen);
@@ -976,7 +979,16 @@ void *process_llm_thread(void *arg)
         nchunks++;
     }
     mr->chunk_count = nchunks;
-    mr->ready = 1;
+    if (alloc_failed) {
+        for (int c = 0; c < nchunks; c++) {
+            free(mr->chunks[c]);
+            mr->chunks[c] = NULL;
+        }
+        mr->chunk_count = 0;
+        mr->failed = 1;
+    } else {
+        mr->ready = 1;
+    }
     pthread_mutex_unlock(&g_lock);
 
     free(b64_buf);
