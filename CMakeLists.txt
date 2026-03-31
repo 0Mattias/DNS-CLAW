@@ -27,12 +27,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(cJSON)
 
-# OpenSSL (Homebrew on macOS)
-set(OPENSSL_ROOT_DIR "/opt/homebrew/opt/openssl@3" CACHE PATH "OpenSSL root")
+# OpenSSL
+if(APPLE)
+    set(OPENSSL_ROOT_DIR "/opt/homebrew/opt/openssl@3" CACHE PATH "OpenSSL root")
+endif()
 find_package(OpenSSL REQUIRED)
 
-# libcurl (Homebrew on macOS)
-set(CURL_ROOT "/opt/homebrew/opt/curl" CACHE PATH "curl root")
+# libcurl
+if(APPLE)
+    set(CURL_ROOT "/opt/homebrew/opt/curl" CACHE PATH "curl root")
+endif()
 find_package(CURL REQUIRED)
 
 find_package(Threads REQUIRED)

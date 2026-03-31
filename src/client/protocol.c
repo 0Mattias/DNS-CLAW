@@ -578,7 +578,10 @@ int process_message_loop(const char *type, const char *content,
             printf("\n");
             set_bg_rgb(THEME_R1);
             set_fg_rgb(255, 255, 255);
-            printf(ANSI_BOLD " ✦ Gemini " ANSI_RESET);
+            const char *prov_name = cJSON_GetStringValue(
+                cJSON_GetObjectItem(resp_json, "provider"));
+            if (!prov_name || !prov_name[0]) prov_name = "Agent";
+            printf(ANSI_BOLD " ✦ %s " ANSI_RESET, prov_name);
             set_fg_rgb(THEME_DIM);
             printf(" %.1fs", elapsed);
             printf(ANSI_RESET "\n");
