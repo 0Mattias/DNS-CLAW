@@ -75,10 +75,8 @@ atomic_int g_interrupted = 0;
 
 /* ── DNS Query Wrapper ────────────────────────────────────────────────────── */
 
-int do_dns_query(const char *qname, char *txt_out, size_t txt_out_len)
+static int do_dns_query_once(const char *qname, char *txt_out, size_t txt_out_len)
 {
-    if (g_interrupted) return -1;
-
     if (g_cfg.use_doh) {
         return dns_query_doh(g_cfg.server_addr, qname, g_cfg.insecure,
                              txt_out, txt_out_len);
@@ -89,6 +87,20 @@ int do_dns_query(const char *qname, char *txt_out, size_t txt_out_len)
         return dns_query_udp(g_cfg.server_addr, (uint16_t)g_cfg.port,
                              qname, txt_out, txt_out_len);
     }
+}
+
+int do_dns_query(const char *qname, char *txt_out, size_t txt_out_len)
+{
+    static const int MAX_RETRIES = 3;
+    static const useconds_t BACKOFF_US[] = {0, 300000, 800000};
+
+    for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        if (g_interrupted) return -1;
+        if (attempt > 0) usleep(BACKOFF_US[attempt]);
+        int rc = do_dns_query_once(qname, txt_out, txt_out_len);
+        if (rc == 0) return 0;
+    }
+    return -1;
 }
 
 /* ── Session Init ─────────────────────────────────────────────────────────── */
@@ -269,7 +281,10 @@ int process_message_loop(const char *type, const char *content,
                 snprintf(spin_msg, sizeof(spin_msg),
                          "Agent is thinking... (poll %d)", poll_count);
                 spinner_set_message(&sp, spin_msg);
-                usleep(500000);
+                /* Adaptive backoff: 100ms → 200ms → 400ms → ... → 3s max */
+                useconds_t delay = 100000u << (poll_count < 5 ? poll_count : 5);
+                if (delay > 3000000u) delay = 3000000u;
+                usleep(delay);
                 continue;
             } else if (strcmp(txt, "EOF") == 0) {
                 break;
@@ -602,17 +617,17 @@ int process_message_loop(const char *type, const char *content,
                                              "Error: File too large (%ld bytes)", fsize);
                                     fclose(fp);
                                 } else {
-                                    char *content = malloc((size_t)fsize + 1);
-                                    if (!content) {
+                                    char *file_buf = malloc((size_t)fsize + 1);
+                                    if (!file_buf) {
                                         snprintf(tool_result, sizeof(tool_result),
                                                  "Error: Out of memory");
                                         fclose(fp);
                                     } else {
-                                        size_t rd = fread(content, 1, (size_t)fsize, fp);
-                                        content[rd] = '\0';
+                                        size_t rd = fread(file_buf, 1, (size_t)fsize, fp);
+                                        file_buf[rd] = '\0';
                                         fclose(fp);
 
-                                        char *match = strstr(content, old_str);
+                                        char *match = strstr(file_buf, old_str);
                                         if (!match) {
                                             snprintf(tool_result, sizeof(tool_result),
                                                      "Error: old_string not found in file");
@@ -627,7 +642,7 @@ int process_message_loop(const char *type, const char *content,
                                             } else {
                                                 size_t old_len = strlen(old_str);
                                                 size_t new_len = strlen(new_str);
-                                                size_t prefix_len = (size_t)(match - content);
+                                                size_t prefix_len = (size_t)(match - file_buf);
                                                 if (prefix_len + old_len > rd) {
                                                     snprintf(tool_result, sizeof(tool_result),
                                                              "Error: string match exceeds file bounds");
@@ -639,7 +654,7 @@ int process_message_loop(const char *type, const char *content,
                                                     snprintf(tool_result, sizeof(tool_result),
                                                              "Error: Out of memory");
                                                 } else {
-                                                    memcpy(result, content, prefix_len);
+                                                    memcpy(result, file_buf, prefix_len);
                                                     memcpy(result + prefix_len, new_str, new_len);
                                                     memcpy(result + prefix_len + new_len,
                                                            match + old_len, suffix_len);
@@ -661,7 +676,7 @@ int process_message_loop(const char *type, const char *content,
                                                 }
                                             }
                                         }
-                                        free(content);
+                                        free(file_buf);
                                     }
                                 }
                             }
@@ -839,6 +854,7 @@ int process_message_loop(const char *type, const char *content,
 
             if (text) {
                 render_markdown(text);
+                export_log_add("agent", text);
             }
 
             cJSON_Delete(resp_json);

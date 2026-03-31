@@ -23,4 +23,7 @@ int init_session(int show_msg);
 int process_message_loop(const char *type, const char *content,
                          const char *tool_name);
 
+/* Conversation export logging (defined in main.c) */
+void export_log_add(const char *role, const char *text);
+
 #endif /* CLAW_CLIENT_PROTOCOL_H */

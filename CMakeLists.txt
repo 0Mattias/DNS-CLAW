@@ -96,6 +96,10 @@ target_include_directories(dnsclaw-server PRIVATE ${cJSON_SOURCE_DIR})
 
 # ── Client ───────────────────────────────────────────────────────────────────
 
+# libedit (optional — enables command history and line editing)
+find_library(LIBEDIT_LIB edit)
+find_path(LIBEDIT_INC histedit.h)
+
 add_executable(dnsclaw
     src/client/main.c
     src/client/render.c
@@ -109,6 +113,15 @@ target_link_libraries(dnsclaw PRIVATE
     Threads::Threads
 )
 target_include_directories(dnsclaw PRIVATE ${cJSON_SOURCE_DIR})
+
+if(LIBEDIT_LIB AND LIBEDIT_INC)
+    target_compile_definitions(dnsclaw PRIVATE HAVE_LIBEDIT)
+    target_link_libraries(dnsclaw PRIVATE ${LIBEDIT_LIB})
+    target_include_directories(dnsclaw PRIVATE ${LIBEDIT_INC})
+    message(STATUS "libedit found — command history enabled")
+else()
+    message(STATUS "libedit not found — using basic line input")
+endif()
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 

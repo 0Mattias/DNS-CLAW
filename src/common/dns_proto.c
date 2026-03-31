@@ -297,7 +297,47 @@ int dns_parse_query(const uint8_t *msg, size_t msglen,
     return 0;
 }
 
-/* ── Transport: UDP ──────────────────────────────────────────────────────── */
+/* ── Transport: UDP (with socket reuse) ──────────────────────────────────── */
+
+static int         g_udp_fd = -1;
+static uint16_t    g_udp_port = 0;
+static uint32_t    g_udp_addr = 0;
+
+static int get_udp_socket(const char *server_ip, uint16_t port)
+{
+    struct in_addr ia;
+    if (inet_pton(AF_INET, server_ip, &ia) != 1) return -1;
+
+    /* Reuse if same server:port and socket still valid */
+    if (g_udp_fd >= 0 && g_udp_port == port && g_udp_addr == ia.s_addr)
+        return g_udp_fd;
+
+    /* Close old socket if server changed */
+    if (g_udp_fd >= 0) { close(g_udp_fd); g_udp_fd = -1; }
+
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return -1;
+
+    struct timeval tv = { .tv_sec = 5 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    /* Connect the UDP socket so we can use send/recv instead of sendto/recvfrom.
+     * This also filters out packets from other sources. */
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr = ia;
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd);
+        return -1;
+    }
+
+    g_udp_fd = fd;
+    g_udp_port = port;
+    g_udp_addr = ia.s_addr;
+    return fd;
+}
 
 int dns_query_udp(const char *server_ip, uint16_t port,
                   const char *qname,
@@ -308,32 +348,28 @@ int dns_query_udp(const char *server_ip, uint16_t port,
     int qlen = dns_build_query(qid, qname, qbuf, sizeof(qbuf));
     if (qlen < 0) return -1;
 
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    int fd = get_udp_socket(server_ip, port);
     if (fd < 0) return -1;
 
-    struct timeval tv = { .tv_sec = 10 };
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
-        close(fd);
-        return -1;
+    ssize_t sent = send(fd, qbuf, (size_t)qlen, 0);
+    if (sent < 0) {
+        /* Socket went bad — invalidate and retry once */
+        close(g_udp_fd);
+        g_udp_fd = -1;
+        fd = get_udp_socket(server_ip, port);
+        if (fd < 0) return -1;
+        sent = send(fd, qbuf, (size_t)qlen, 0);
+        if (sent < 0) return -1;
     }
-
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    if (inet_pton(AF_INET, server_ip, &addr.sin_addr) != 1) {
-        close(fd);
-        return -1;
-    }
-
-    ssize_t sent = sendto(fd, qbuf, (size_t)qlen, 0,
-                          (struct sockaddr *)&addr, sizeof(addr));
-    if (sent < 0) { close(fd); return -1; }
 
     uint8_t rbuf[DNS_MAX_MSG];
-    ssize_t rlen = recvfrom(fd, rbuf, sizeof(rbuf), 0, NULL, NULL);
-    close(fd);
-    if (rlen < 0) return -1;
+    ssize_t rlen = recv(fd, rbuf, sizeof(rbuf), 0);
+    if (rlen < 0) {
+        /* Timeout or error — invalidate socket for next call */
+        close(g_udp_fd);
+        g_udp_fd = -1;
+        return -1;
+    }
 
     int rcode;
     return dns_parse_txt_response(rbuf, (size_t)rlen, &rcode,
