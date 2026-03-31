@@ -63,8 +63,8 @@ int main(int argc, char **argv)
         snprintf(config_env, sizeof(config_env), "%s/.config/dnsclaw/.env", home);
         load_dotenv(config_env);
     }
-    load_dotenv("../.env");
     load_dotenv(".env");
+    load_dotenv("../.env");
 
     /* Defaults */
     g_cfg.typewriter = 1;

@@ -32,8 +32,8 @@ const char *PROVIDER_NAMES[] = {
 };
 
 const char *PROVIDER_DEFAULT_MODELS[] = {
-    "gemini-2.5-flash", "gpt-4o", "claude-sonnet-4-20250514",
-    "anthropic/claude-sonnet-4-20250514"
+    "gemini-3.1-pro-preview", "gpt-5.4", "claude-opus-4-6-20250610",
+    "openrouter/auto"
 };
 
 static const char *SYSTEM_PROMPT =

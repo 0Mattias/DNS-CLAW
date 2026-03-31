@@ -28,7 +28,7 @@ Then run:
 
 ```bash
 # Terminal 1 — start the server (port 53 requires sudo)
-sudo ./build/dnsclaw-server
+sudo -E ./build/dnsclaw-server
 
 # Terminal 2 — start chatting
 ./build/dnsclaw
@@ -39,7 +39,7 @@ sudo ./build/dnsclaw-server
 ```bash
 sudo cmake --install build
 # Now available anywhere:
-sudo dnsclaw-server    # terminal 1
+sudo -E dnsclaw-server    # terminal 1
 dnsclaw                # terminal 2
 ```
 
@@ -95,7 +95,7 @@ echo "explain this" | dnsclaw    # pipe mode
 DNS server that tunnels LLM requests. Listens for DNS queries, reassembles chunked messages, calls the configured LLM API, and returns responses as TXT records.
 
 ```bash
-sudo dnsclaw-server              # start with .env config
+sudo -E dnsclaw-server              # start with .env config
 ```
 
 On first run with no API key configured, the server launches an interactive setup wizard that asks for your provider, API key, and model — then saves the config.
@@ -131,19 +131,19 @@ Environment variables set in your shell override all `.env` files.
 
 # Gemini
 GEMINI_API_KEY="your-api-key"
-GEMINI_MODEL="gemini-2.5-flash"
+GEMINI_MODEL="gemini-3.1-pro-preview"
 
 # OpenAI
 # OPENAI_API_KEY="sk-..."
-# OPENAI_MODEL="gpt-4o"
+# OPENAI_MODEL="gpt-5.4"
 
 # Anthropic (Claude)
 # ANTHROPIC_API_KEY="sk-ant-..."
-# ANTHROPIC_MODEL="claude-sonnet-4-20250514"
+# ANTHROPIC_MODEL="claude-opus-4-6-20250610"
 
-# OpenRouter (any model via unified API)
+# OpenRouter (any model — "openrouter/auto" picks the best)
 # OPENROUTER_API_KEY="sk-or-..."
-# OPENROUTER_MODEL="anthropic/claude-sonnet-4-20250514"
+# OPENROUTER_MODEL="openrouter/auto"
 
 # Payload Encryption (recommended)
 # Generate with: openssl rand -base64 32
@@ -264,7 +264,7 @@ cp .env.example ~/.config/dnsclaw/.env
 ./generate_certs.sh
 
 # Run
-sudo ./build/dnsclaw-server   # terminal 1
+sudo -E ./build/dnsclaw-server   # terminal 1
 ./build/dnsclaw               # terminal 2
 ```
 
@@ -275,7 +275,7 @@ sudo ./build/dnsclaw-server   # terminal 1
 | `Failed to initialize session` | Client can't reach server | Check server is running, ports match, and `DNS_SERVER_ADDR` is correct |
 | `Decryption failed — PSK mismatch` | Different `TUNNEL_PSK` values | Ensure client and server use the same key |
 | `FATAL: No API key found` | Missing API key | Run `setup.sh` or add a key to `~/.config/dnsclaw/.env` |
-| `bind: Permission denied` | Port 53/443/853 requires root | Run server with `sudo` |
+| `bind: Permission denied` | Port 53/443/853 requires root | Run server with `sudo -E` (the `-E` preserves your env) |
 | DoH connection refused | Wrong address format | Use `https://127.0.0.1/dns-query` (full URL with path) |
 | `base32 decode failed` | Corrupted packet or version mismatch | Rebuild both binaries from same source |
 

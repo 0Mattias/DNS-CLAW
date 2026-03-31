@@ -12,23 +12,19 @@ DIM='\033[38;2;100;80;80m'
 RST='\033[0m'
 BOLD='\033[1m'
 
-banner() {
-    echo ""
-    echo -e "${R1}▓█████▄  ███▄    █   ██████     ▄████▄   ██▓    ▄▄▄       █     █░${RST}"
-    echo -e "${R2}▒██▀ ██▌ ██ ▀█   █ ▒██    ▒    ▒██▀ ▀█  ▓██▒   ▒████▄    ▓█░ █ ░█░${RST}"
-    echo -e "${R3}░██   █▌▓██  ▀█ ██▒░ ▓██▄      ▒▓█    ▄ ▒██░   ▒██  ▀█▄  ▒█░ █ ░█ ${RST}"
-    echo -e "${R4}░▓█▄   ▌▓██▒  ▐▌██▒  ▒   ██▒   ▒▓▓▄ ▄██▒▒██░   ░██▄▄▄▄██ ░█░ █ ░█ ${RST}"
-    echo ""
-}
-
 info()  { echo -e "  ${R2}│${RST}  $1"; }
 ok()    { echo -e "  ${R2}│  ${R3}✓${RST} $1"; }
 err()   { echo -e "  ${R1}│  ✗${RST} $1"; }
 prompt(){ echo -ne "  ${R2}│${RST}  $1"; }
 
 # ── Banner ──────────────────────────────────────────────────────────────────
-banner
-echo -e "  ${R2}┌─ Setup ${DIM}──────────────────────────────────────────${RST}"
+echo ""
+echo -e "${R1}  ██████▄  ██  █  ██████${RST}"
+echo -e "${R2}  ██  ▀██  ███▄█  ▀█▄   ${RST}   ${R3}█▀▀  █   ▄▀▄  █   █${RST}"
+echo -e "${R3}  ██   ██  ██ ▀█   ▀▀█▄ ${RST}   ${R4}█    █▄▄ █▀█  ▀▄▀▄▀${RST}"
+echo -e "${R4}  ██████▀  ██  █  █████▀${RST}"
+echo ""
+echo -e "  ${R2}┌─ Setup ${DIM}──────────────────────────────────${RST}"
 echo -e "  ${R2}│${RST}"
 
 # ── Check dependencies ─────────────────────────────────────────────────────
@@ -41,7 +37,6 @@ for cmd in cmake openssl; do
     fi
 done
 
-# Check for curl library (not just the command)
 if ! command -v curl &>/dev/null; then
     MISSING="$MISSING curl"
 fi
@@ -49,7 +44,7 @@ fi
 if [ -n "$MISSING" ]; then
     err "Missing:${MISSING}"
     info "Install with: ${BOLD}brew install${MISSING}${RST}"
-    echo -e "  ${R2}└${DIM}──────────────────────────────────────────────────${RST}"
+    echo -e "  ${R2}└${DIM}──────────────────────────────────────────${RST}"
     exit 1
 fi
 ok "All dependencies found"
@@ -61,9 +56,8 @@ ENV_FILE="$CONFIG_DIR/.env"
 mkdir -p "$CONFIG_DIR"
 
 # ── Provider setup ──────────────────────────────────────────────────────────
+HAS_KEY=0
 if [ -f "$ENV_FILE" ]; then
-    # Check if any API key is already configured
-    HAS_KEY=0
     for key in GEMINI_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY OPENROUTER_API_KEY; do
         if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
             VAL=$(grep "^${key}=" "$ENV_FILE" | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'")
@@ -76,7 +70,7 @@ if [ -f "$ENV_FILE" ]; then
     done
 fi
 
-if [ "${HAS_KEY:-0}" -eq 0 ]; then
+if [ "$HAS_KEY" -eq 0 ]; then
     info "Select your LLM provider:"
     echo -e "  ${R2}│${RST}"
     echo -e "  ${R2}│${RST}    ${R3}1)${RST} Gemini"
@@ -88,19 +82,21 @@ if [ "${HAS_KEY:-0}" -eq 0 ]; then
     read -r CHOICE
 
     case "$CHOICE" in
-        1) KEY_NAME="GEMINI_API_KEY";     MODEL_NAME="GEMINI_MODEL";     DEFAULT_MODEL="gemini-2.5-flash" ;;
-        2) KEY_NAME="OPENAI_API_KEY";     MODEL_NAME="OPENAI_MODEL";     DEFAULT_MODEL="gpt-4o" ;;
-        3) KEY_NAME="ANTHROPIC_API_KEY";  MODEL_NAME="ANTHROPIC_MODEL";  DEFAULT_MODEL="claude-sonnet-4-20250514" ;;
-        4) KEY_NAME="OPENROUTER_API_KEY"; MODEL_NAME="OPENROUTER_MODEL"; DEFAULT_MODEL="anthropic/claude-sonnet-4-20250514" ;;
+        1) KEY_NAME="GEMINI_API_KEY";     MODEL_NAME="GEMINI_MODEL";     DEFAULT_MODEL="gemini-3.1-pro-preview" ;;
+        2) KEY_NAME="OPENAI_API_KEY";     MODEL_NAME="OPENAI_MODEL";     DEFAULT_MODEL="gpt-5.4" ;;
+        3) KEY_NAME="ANTHROPIC_API_KEY";  MODEL_NAME="ANTHROPIC_MODEL";  DEFAULT_MODEL="claude-opus-4-6-20250610" ;;
+        4) KEY_NAME="OPENROUTER_API_KEY"; MODEL_NAME="OPENROUTER_MODEL"; DEFAULT_MODEL="openrouter/auto" ;;
         *) err "Invalid choice"; exit 1 ;;
     esac
 
     prompt "Paste your API key: "
-    read -r API_KEY
+    read -rs API_KEY
+    echo ""
     if [ -z "$API_KEY" ]; then
         err "No API key provided"
         exit 1
     fi
+    ok "API key received"
 
     prompt "Model (enter for ${DEFAULT_MODEL}): "
     read -r MODEL
@@ -145,7 +141,7 @@ fi
 echo -e "  ${R2}│${RST}"
 
 # ── Transport choice ───────────────────────────────────────────────────────
-prompt "Transport mode? [${BOLD}1${RST}] UDP  [2] DoT (TLS)  [3] DoH (HTTPS): "
+prompt "Transport mode? [${BOLD}1${RST}] UDP  [2] DoT  [3] DoH: "
 read -r TRANSPORT
 
 case "$TRANSPORT" in
@@ -206,14 +202,14 @@ echo -e "  ${R2}│${RST}"
 echo -e "  ${R2}│${RST}  ${BOLD}Ready to go!${RST}"
 echo -e "  ${R2}│${RST}"
 echo -e "  ${R2}│${RST}  Start the server (requires sudo for port binding):"
-echo -e "  ${R2}│${RST}    ${R3}\$ sudo ./build/dnsclaw-server${RST}"
+echo -e "  ${R2}│${RST}    ${R3}\$ sudo -E ./build/dnsclaw-server${RST}"
 echo -e "  ${R2}│${RST}"
 echo -e "  ${R2}│${RST}  Then in another terminal:"
 echo -e "  ${R2}│${RST}    ${R3}\$ ./build/dnsclaw${RST}"
 echo -e "  ${R2}│${RST}"
 echo -e "  ${R2}│${RST}  Or install system-wide:"
 echo -e "  ${R2}│${RST}    ${R3}\$ sudo cmake --install build${RST}"
-echo -e "  ${R2}│${RST}    ${R3}\$ sudo dnsclaw-server${RST}  &  ${R3}dnsclaw${RST}"
+echo -e "  ${R2}│${RST}    ${R3}\$ sudo -E dnsclaw-server${RST}  &  ${R3}dnsclaw${RST}"
 echo -e "  ${R2}│${RST}"
-echo -e "  ${R2}└${DIM}──────────────────────────────────────────────────${RST}"
+echo -e "  ${R2}└${DIM}──────────────────────────────────────────${RST}"
 echo ""

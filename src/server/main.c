@@ -8,6 +8,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <pthread.h>
+#include <pwd.h>
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -84,12 +85,24 @@ int main(void)
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    /* Load .env from multiple locations (first match wins per variable) */
+    /* Load .env from multiple locations (first match wins per variable).
+     * When running under sudo, HOME may be /var/root — also check
+     * SUDO_USER's home so config written by setup.sh is found. */
     const char *home = getenv("HOME");
     if (home) {
         char config_env[512];
         snprintf(config_env, sizeof(config_env), "%s/.config/dnsclaw/.env", home);
         load_dotenv(config_env);
+    }
+    const char *sudo_user = getenv("SUDO_USER");
+    if (sudo_user && sudo_user[0]) {
+        char sudo_env[512];
+        struct passwd *pw = getpwnam(sudo_user);
+        if (pw && pw->pw_dir) {
+            snprintf(sudo_env, sizeof(sudo_env),
+                     "%s/.config/dnsclaw/.env", pw->pw_dir);
+            load_dotenv(sudo_env);
+        }
     }
     load_dotenv("../.env");
     load_dotenv(".env");
