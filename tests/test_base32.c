@@ -73,6 +73,58 @@ static void test_buffer_too_small(void)
     PASS("buffer_too_small");
 }
 
+static void test_invalid_chars_rejected(void)
+{
+    uint8_t buf[64];
+    /* Characters outside A-Z 2-7 must be rejected */
+    assert(base32_decode("0000", buf, sizeof(buf)) == -1);   /* '0' invalid */
+    assert(base32_decode("1111", buf, sizeof(buf)) == -1);   /* '1' invalid */
+    assert(base32_decode("8888", buf, sizeof(buf)) == -1);   /* '8' invalid */
+    assert(base32_decode("!@#$", buf, sizeof(buf)) == -1);
+    assert(base32_decode("AB\x01D", buf, sizeof(buf)) == -1);
+    PASS("invalid_chars_rejected");
+}
+
+static void test_decode_dst_too_small(void)
+{
+    uint8_t buf[2];
+    /* "JBSWY3DP" decodes to "Hello" (5 bytes), 2-byte buffer should fail */
+    assert(base32_decode("JBSWY3DP", buf, sizeof(buf)) == -1);
+    PASS("decode_dst_too_small");
+}
+
+static void test_binary_roundtrip(void)
+{
+    /* All byte values 0x00-0xFF */
+    uint8_t data[256];
+    for (int i = 0; i < 256; i++) data[i] = (uint8_t)i;
+
+    char enc[512];
+    assert(base32_encode(data, sizeof(data), enc, sizeof(enc)) > 0);
+
+    uint8_t dec[256];
+    int n = base32_decode(enc, dec, sizeof(dec));
+    assert(n == 256);
+    assert(memcmp(dec, data, 256) == 0);
+    PASS("binary_roundtrip");
+}
+
+static void test_single_byte_values(void)
+{
+    /* Roundtrip each single byte individually */
+    for (int i = 0; i < 256; i++) {
+        uint8_t byte = (uint8_t)i;
+        char enc[16];
+        uint8_t dec[16];
+        int elen = base32_encode(&byte, 1, enc, sizeof(enc));
+        assert(elen > 0);
+        int dlen = base32_decode(enc, dec, sizeof(dec));
+        assert(dlen == 1);
+        assert(dec[0] == byte);
+    }
+    PASS("single_byte_values");
+}
+
 int main(void)
 {
     printf("base32:\n");
@@ -82,6 +134,10 @@ int main(void)
     test_roundtrip();
     test_encoded_len();
     test_buffer_too_small();
+    test_invalid_chars_rejected();
+    test_decode_dst_too_small();
+    test_binary_roundtrip();
+    test_single_byte_values();
     printf("  ALL PASSED\n");
     return 0;
 }

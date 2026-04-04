@@ -128,6 +128,112 @@ static void test_label_too_long(void)
     PASS("label_too_long");
 }
 
+static void test_empty_message_rejected(void)
+{
+    int rcode;
+    char txt[64];
+    assert(dns_parse_txt_response(NULL, 0, &rcode, txt, sizeof(txt)) == -1);
+    PASS("empty_message_rejected");
+}
+
+static void test_query_parse_truncated(void)
+{
+    uint16_t id;
+    char qname[256];
+    /* 11 bytes — too short for DNS header (need 12) */
+    uint8_t buf[11] = {0};
+    assert(dns_parse_query(buf, sizeof(buf), &id, qname, sizeof(qname)) == -1);
+    PASS("query_parse_truncated");
+}
+
+static void test_empty_txt_roundtrip(void)
+{
+    uint8_t buf[DNS_MAX_MSG];
+    int len = dns_build_response(0x0042, "t.llm.local.",
+                                  DNS_RCODE_OK, "",
+                                  buf, sizeof(buf));
+    assert(len > 0);
+
+    int rcode;
+    char txt[DNS_MAX_TXT];
+    assert(dns_parse_txt_response(buf, (size_t)len, &rcode,
+                                   txt, sizeof(txt)) == 0);
+    assert(rcode == DNS_RCODE_OK);
+    assert(txt[0] == '\0');
+    PASS("empty_txt_roundtrip");
+}
+
+static void test_max_label_length(void)
+{
+    /* 63 chars is the maximum DNS label length — should succeed */
+    char label[128];
+    memset(label, 'a', 63);
+    label[63] = '.';
+    strcpy(label + 64, "llm.local.");
+
+    uint8_t buf[DNS_MAX_MSG];
+    int len = dns_build_query(0x0001, label, buf, sizeof(buf));
+    assert(len > 0);
+
+    uint16_t id;
+    char qname[256];
+    assert(dns_parse_query(buf, (size_t)len, &id, qname, sizeof(qname)) == 0);
+    assert(id == 0x0001);
+    PASS("max_label_length");
+}
+
+static void test_multiple_labels(void)
+{
+    /* Typical tunnel query name with many labels */
+    const char *qname = "data.0.up.1.abcdef12.llm.local.";
+    uint8_t buf[DNS_MAX_MSG];
+    int len = dns_build_query(0x5678, qname, buf, sizeof(buf));
+    assert(len > 0);
+
+    uint16_t id;
+    char parsed[256];
+    assert(dns_parse_query(buf, (size_t)len, &id, parsed, sizeof(parsed)) == 0);
+    assert(id == 0x5678);
+    assert(strcmp(parsed, qname) == 0);
+    PASS("multiple_labels");
+}
+
+static void test_response_rcode_preserved(void)
+{
+    int rcodes[] = {DNS_RCODE_OK, DNS_RCODE_FORMERR, DNS_RCODE_SERVFAIL, DNS_RCODE_NXDOMAIN};
+    for (int i = 0; i < 4; i++) {
+        uint8_t buf[DNS_MAX_MSG];
+        int len = dns_build_response(0x0001, "t.llm.local.",
+                                      rcodes[i], NULL,
+                                      buf, sizeof(buf));
+        assert(len > 0);
+
+        int rcode;
+        char txt[DNS_MAX_TXT];
+        assert(dns_parse_txt_response(buf, (size_t)len, &rcode,
+                                       txt, sizeof(txt)) == 0);
+        assert(rcode == rcodes[i]);
+    }
+    PASS("response_rcode_preserved");
+}
+
+static void test_query_id_full_range(void)
+{
+    /* Test query ID at boundaries: 0, 0xFFFF, and a mid value */
+    uint16_t ids[] = {0x0000, 0xFFFF, 0x8000};
+    for (int i = 0; i < 3; i++) {
+        uint8_t buf[DNS_MAX_MSG];
+        int len = dns_build_query(ids[i], "t.llm.local.", buf, sizeof(buf));
+        assert(len > 0);
+
+        uint16_t id;
+        char qname[256];
+        assert(dns_parse_query(buf, (size_t)len, &id, qname, sizeof(qname)) == 0);
+        assert(id == ids[i]);
+    }
+    PASS("query_id_full_range");
+}
+
 int main(void)
 {
     printf("dns_proto:\n");
@@ -139,6 +245,13 @@ int main(void)
     test_truncated_message_rejected();
     test_buffer_too_small();
     test_label_too_long();
+    test_empty_message_rejected();
+    test_query_parse_truncated();
+    test_empty_txt_roundtrip();
+    test_max_label_length();
+    test_multiple_labels();
+    test_response_rcode_preserved();
+    test_query_id_full_range();
     printf("  ALL PASSED\n");
     return 0;
 }

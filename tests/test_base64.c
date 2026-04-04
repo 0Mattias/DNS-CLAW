@@ -97,6 +97,61 @@ static void test_buffer_too_small(void)
     PASS("buffer_too_small");
 }
 
+static void test_invalid_chars_rejected(void)
+{
+    uint8_t buf[64];
+    /* Characters outside the base64 alphabet must be rejected */
+    assert(base64_decode("!!!!", buf, sizeof(buf)) == -1);
+    assert(base64_decode("AB\x01D", buf, sizeof(buf)) == -1);
+    assert(base64_decode("AB CD", buf, sizeof(buf)) == -1);  /* space */
+    assert(base64_decode("@@@@", buf, sizeof(buf)) == -1);
+    assert(base64_decode("\xff\xff\xff\xff", buf, sizeof(buf)) == -1);
+    PASS("invalid_chars_rejected");
+}
+
+static void test_invalid_trailing_length(void)
+{
+    uint8_t buf[64];
+    /* After stripping padding, rem==1 is invalid base64 (6 bits, need >= 12) */
+    assert(base64_decode("A", buf, sizeof(buf)) == -1);
+    assert(base64_decode("AAAAA", buf, sizeof(buf)) == -1);  /* 5 chars → rem=1 */
+    PASS("invalid_trailing_length");
+}
+
+static void test_decode_dst_too_small(void)
+{
+    uint8_t buf[2];
+    /* "SGVsbG8=" decodes to "Hello" (5 bytes), 2-byte buffer should fail */
+    assert(base64_decode("SGVsbG8=", buf, sizeof(buf)) == -1);
+    PASS("decode_dst_too_small");
+}
+
+static void test_decode_no_padding(void)
+{
+    uint8_t buf[64];
+    /* Base64 without padding should still decode correctly */
+    int n = base64_decode("SGVsbG8", buf, sizeof(buf));
+    assert(n == 5);
+    assert(memcmp(buf, "Hello", 5) == 0);
+    PASS("decode_no_padding");
+}
+
+static void test_binary_roundtrip(void)
+{
+    /* All byte values 0x00-0xFF */
+    uint8_t data[256];
+    for (int i = 0; i < 256; i++) data[i] = (uint8_t)i;
+
+    char enc[512];
+    assert(base64_encode(data, sizeof(data), enc, sizeof(enc)) > 0);
+
+    uint8_t dec[256];
+    int n = base64_decode(enc, dec, sizeof(dec));
+    assert(n == 256);
+    assert(memcmp(dec, data, 256) == 0);
+    PASS("binary_roundtrip");
+}
+
 int main(void)
 {
     printf("base64:\n");
@@ -108,6 +163,11 @@ int main(void)
     test_rfc4648_vectors();
     test_encoded_len();
     test_buffer_too_small();
+    test_invalid_chars_rejected();
+    test_invalid_trailing_length();
+    test_decode_dst_too_small();
+    test_decode_no_padding();
+    test_binary_roundtrip();
     printf("  ALL PASSED\n");
     return 0;
 }

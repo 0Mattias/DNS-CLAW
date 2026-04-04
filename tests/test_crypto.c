@@ -113,6 +113,93 @@ static void test_unique_nonces(void)
     PASS("unique_nonces");
 }
 
+static void test_encrypt_when_disabled_fails(void)
+{
+    tunnel_crypto_init(NULL);
+    assert(tunnel_crypto_enabled() == 0);
+    uint8_t ct[128];
+    size_t ct_len = 0;
+    assert(tunnel_encrypt((const uint8_t *)"test", 4, ct, &ct_len) == -1);
+    PASS("encrypt_when_disabled_fails");
+}
+
+static void test_decrypt_when_disabled_fails(void)
+{
+    tunnel_crypto_init(NULL);
+    uint8_t pt[128];
+    size_t pt_len = 0;
+    uint8_t fake[64] = {CRYPTO_MAGIC_0, CRYPTO_MAGIC_1};
+    assert(tunnel_decrypt(fake, sizeof(fake), pt, &pt_len) == -1);
+    PASS("decrypt_when_disabled_fails");
+}
+
+static void test_bad_magic_rejected(void)
+{
+    tunnel_crypto_init("magic-key");
+    const char *msg = "test";
+    uint8_t ct[128];
+    size_t ct_len = 0;
+    assert(tunnel_encrypt((const uint8_t *)msg, 4, ct, &ct_len) == 0);
+
+    /* Corrupt magic header */
+    ct[0] = 0xFF;
+    ct[1] = 0xFF;
+    uint8_t pt[128];
+    size_t pt_len = 0;
+    assert(tunnel_decrypt(ct, ct_len, pt, &pt_len) == -1);
+    PASS("bad_magic_rejected");
+}
+
+static void test_empty_plaintext_roundtrip(void)
+{
+    tunnel_crypto_init("empty-key");
+    uint8_t ct[128];
+    size_t ct_len = 0;
+    assert(tunnel_encrypt((const uint8_t *)"", 0, ct, &ct_len) == 0);
+    assert(ct_len == CRYPTO_OVERHEAD);
+
+    uint8_t pt[128];
+    size_t pt_len = 99;
+    assert(tunnel_decrypt(ct, ct_len, pt, &pt_len) == 0);
+    assert(pt_len == 0);
+    PASS("empty_plaintext_roundtrip");
+}
+
+static void test_large_payload_roundtrip(void)
+{
+    tunnel_crypto_init("large-key");
+    /* 4KB payload */
+    uint8_t data[4096];
+    for (int i = 0; i < (int)sizeof(data); i++) data[i] = (uint8_t)(i & 0xFF);
+
+    uint8_t ct[4096 + CRYPTO_OVERHEAD + 16];
+    size_t ct_len = 0;
+    assert(tunnel_encrypt(data, sizeof(data), ct, &ct_len) == 0);
+
+    uint8_t pt[4096];
+    size_t pt_len = 0;
+    assert(tunnel_decrypt(ct, ct_len, pt, &pt_len) == 0);
+    assert(pt_len == sizeof(data));
+    assert(memcmp(pt, data, sizeof(data)) == 0);
+    PASS("large_payload_roundtrip");
+}
+
+static void test_tampered_tag_fails(void)
+{
+    tunnel_crypto_init("tag-key");
+    const char *msg = "authenticate me";
+    uint8_t ct[128];
+    size_t ct_len = 0;
+    assert(tunnel_encrypt((const uint8_t *)msg, strlen(msg), ct, &ct_len) == 0);
+
+    /* Flip a bit in the GCM auth tag (last 16 bytes) */
+    ct[ct_len - 1] ^= 0x01;
+    uint8_t pt[128];
+    size_t pt_len = 0;
+    assert(tunnel_decrypt(ct, ct_len, pt, &pt_len) != 0);
+    PASS("tampered_tag_fails");
+}
+
 int main(void)
 {
     printf("crypto:\n");
@@ -124,6 +211,12 @@ int main(void)
     test_too_short_fails();
     test_empty_psk_disables();
     test_unique_nonces();
+    test_encrypt_when_disabled_fails();
+    test_decrypt_when_disabled_fails();
+    test_bad_magic_rejected();
+    test_empty_plaintext_roundtrip();
+    test_large_payload_roundtrip();
+    test_tampered_tag_fails();
     printf("  ALL PASSED\n");
     return 0;
 }
