@@ -12,7 +12,8 @@ Supports **Gemini**, **OpenAI**, **Claude (Anthropic)**, and **OpenRouter**.
 
 ## Example
 
-<img width="784" height="447" alt="DNS-CLAW terminal session" src="https://github.com/user-attachments/assets/9e8b62b3-c633-474d-852c-9ad3fd08cd63" />
+<img width="798" height="514" alt="dnsclaw" src="https://github.com/user-attachments/assets/b62223c1-07f8-4500-b54d-4b284feecee4" />
+
 
 ## Why DNS?
 
