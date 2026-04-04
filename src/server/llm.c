@@ -858,18 +858,30 @@ void *process_llm_thread(void *arg)
         }
     }
     b32_combined[b32_pos] = '\0';
+
+    /* Clear the pending slot so stale chunks can't pollute future messages */
+    pp->valid = 0;
+    pp->chunk_count = 0;
     pthread_mutex_unlock(&g_lock);
 
     /* Convert to uppercase for decoding */
     for (char *p = b32_combined; *p; p++)
         *p = (char)toupper((unsigned char)*p);
 
-    /* Base32 decode */
-    uint8_t payload_bytes[65536];
-    int decoded_len = base32_decode(b32_combined, payload_bytes, sizeof(payload_bytes));
-    if (decoded_len < 0 || (size_t)decoded_len >= sizeof(payload_bytes)) {
+    /* Base32 decode — heap-allocate to avoid ~196KB of stack usage per thread */
+    uint8_t *payload_bytes = malloc(65536);
+    if (!payload_bytes) {
+        fprintf(stderr, "[llm] malloc failed for payload buffer\n");
+        pthread_mutex_lock(&g_lock);
+        sess->responses[msg_id].failed = 1;
+        pthread_mutex_unlock(&g_lock);
+        goto done;
+    }
+    int decoded_len = base32_decode(b32_combined, payload_bytes, 65536);
+    if (decoded_len < 0 || (size_t)decoded_len >= 65536) {
         fprintf(stderr, "[llm] base32 decode failed (input len=%zu, decoded=%d)\n", b32_pos,
                 decoded_len);
+        free(payload_bytes);
         pthread_mutex_lock(&g_lock);
         sess->responses[msg_id].failed = 1;
         pthread_mutex_unlock(&g_lock);
@@ -879,7 +891,15 @@ void *process_llm_thread(void *arg)
 
     /* Decrypt payload if PSK is configured */
     if (tunnel_crypto_enabled() && decoded_len > (int)CRYPTO_OVERHEAD) {
-        uint8_t decrypted[65536];
+        uint8_t *decrypted = malloc(65536);
+        if (!decrypted) {
+            fprintf(stderr, "[llm] malloc failed for decrypt buffer\n");
+            free(payload_bytes);
+            pthread_mutex_lock(&g_lock);
+            sess->responses[msg_id].failed = 1;
+            pthread_mutex_unlock(&g_lock);
+            goto done;
+        }
         size_t dec_len = 0;
         if (tunnel_decrypt(payload_bytes, (size_t)decoded_len, decrypted, &dec_len) == 0) {
             memcpy(payload_bytes, decrypted, dec_len);
@@ -887,18 +907,22 @@ void *process_llm_thread(void *arg)
             decoded_len = (int)dec_len;
         } else {
             log_err("llm", "Payload decryption failed — PSK mismatch or corruption");
+            free(decrypted);
+            free(payload_bytes);
             pthread_mutex_lock(&g_lock);
             sess->responses[msg_id].failed = 1;
             pthread_mutex_unlock(&g_lock);
             goto done;
         }
+        free(decrypted);
     }
 
     /* Parse JSON payload */
     cJSON *payload = cJSON_Parse((char *)payload_bytes);
+    free(payload_bytes);
+    payload_bytes = NULL;
     if (!payload) {
-        fprintf(stderr, "[llm] JSON parse failed (len=%d): %.128s\n", decoded_len,
-                (char *)payload_bytes);
+        fprintf(stderr, "[llm] JSON parse failed (len=%d)\n", decoded_len);
         pthread_mutex_lock(&g_lock);
         sess->responses[msg_id].failed = 1;
         pthread_mutex_unlock(&g_lock);

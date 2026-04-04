@@ -72,6 +72,15 @@ void export_log_add(const char *role, const char *text)
     g_export_count++;
 }
 
+static void export_log_clear(void)
+{
+    for (int i = 0; i < g_export_count; i++) {
+        free(g_export_log[i].text);
+        g_export_log[i].text = NULL;
+    }
+    g_export_count = 0;
+}
+
 static int export_conversation(const char *path)
 {
     char filepath[512];
@@ -386,6 +395,7 @@ int main(int argc, char **argv)
         if (strcmp(text, "/clear") == 0 || strcmp(text, "/new") == 0 ||
             strcmp(text, "/reset") == 0) {
             printf("\n");
+            export_log_clear();
             init_session(1);
             continue;
         }
@@ -462,6 +472,7 @@ int main(int argc, char **argv)
     el_end(el);
 #endif
 
+    export_log_clear();
     curl_global_cleanup();
     return 0;
 }

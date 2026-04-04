@@ -313,6 +313,13 @@ int process_message_loop(const char *type, const char *content, const char *tool
             if (resp_pos + (size_t)dlen < RESP_BUF_SIZE) {
                 memcpy(full_response + resp_pos, decoded, (size_t)dlen);
                 resp_pos += (size_t)dlen;
+            } else {
+                spinner_stop(&sp);
+                cJSON_Delete(payload);
+                free(full_response);
+                set_fg_rgb(255, 80, 80);
+                printf("  ✗ Response too large (exceeds %d bytes)\n" ANSI_RESET, RESP_BUF_SIZE);
+                return -1;
             }
             down_seq++;
         }
@@ -449,18 +456,49 @@ int process_message_loop(const char *type, const char *content, const char *tool
                     set_fg_rgb(THEME_R3);
                     printf("📄 %s" ANSI_RESET, fpath);
 
-                    FILE *fp = fopen(fpath, "r");
-                    if (!fp) {
+                    /* Sensitive paths require user confirmation */
+                    int approved = 1;
+                    if (fpath[0] == '/' || strstr(fpath, "..")) {
                         printf("\n");
-                        snprintf(tool_result, sizeof(tool_result), "Error: %s", strerror(errno));
-                    } else {
-                        size_t total = fread(tool_result, 1, sizeof(tool_result) - 1, fp);
-                        tool_result[total] = '\0';
-                        fclose(fp);
+                        warn_suspicious_path(fpath);
+                        printf("  ");
+                        set_fg_rgb(THEME_R4);
+                        printf("  Allow read? " ANSI_RESET);
+                        set_fg_rgb(THEME_R2);
+                        printf("[Y]es");
+                        printf(ANSI_RESET " / ");
                         set_fg_rgb(THEME_DIM);
-                        printf(" (%zu bytes)\n" ANSI_RESET, total);
-                        if (total > TOOL_RESULT_SIZE - 16) {
-                            snprintf(tool_result + TOOL_RESULT_SIZE - 16, 16, "\n...[truncated]");
+                        printf("[n]o" ANSI_RESET ": ");
+                        fflush(stdout);
+                        char confirm[32] = {0};
+                        if (fgets(confirm, sizeof(confirm), stdin)) {
+                            char *c = confirm;
+                            while (*c == ' ')
+                                c++;
+                            if (c[0] == 'n' || c[0] == 'N') {
+                                approved = 0;
+                                snprintf(tool_result, sizeof(tool_result),
+                                         "User rejected file read.");
+                            }
+                        }
+                    }
+
+                    if (approved) {
+                        FILE *fp = fopen(fpath, "r");
+                        if (!fp) {
+                            printf("\n");
+                            snprintf(tool_result, sizeof(tool_result), "Error: %s",
+                                     strerror(errno));
+                        } else {
+                            size_t total = fread(tool_result, 1, sizeof(tool_result) - 1, fp);
+                            tool_result[total] = '\0';
+                            fclose(fp);
+                            set_fg_rgb(THEME_DIM);
+                            printf(" (%zu bytes)\n" ANSI_RESET, total);
+                            if (total > TOOL_RESULT_SIZE - 16) {
+                                snprintf(tool_result + TOOL_RESULT_SIZE - 16, 16,
+                                         "\n...[truncated]");
+                            }
                         }
                     }
                 }

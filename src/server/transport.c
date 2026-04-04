@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
+#include <stdatomic.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -98,6 +99,13 @@ void *udp_server_thread(void *arg)
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ * DoT (TLS) / DoH (HTTPS) shared connection limiter
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+#define MAX_TLS_CLIENTS 128
+static atomic_int g_tls_client_count = 0;
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * DoT (TLS) Listener
  * ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -142,6 +150,7 @@ done:
     SSL_free(dc->ssl);
     close(dc->fd);
     free(dc);
+    g_tls_client_count--;
     return NULL;
 }
 
@@ -215,6 +224,13 @@ void *dot_server_thread(void *arg)
             continue;
         }
 
+        if (g_tls_client_count >= MAX_TLS_CLIENTS) {
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            close(cfd);
+            continue;
+        }
+
         dot_client_t *dc = malloc(sizeof(dot_client_t));
         if (!dc) {
             SSL_shutdown(ssl);
@@ -224,6 +240,7 @@ void *dot_server_thread(void *arg)
         }
         dc->ssl = ssl;
         dc->fd = cfd;
+        g_tls_client_count++;
 
         pthread_t tid;
         pthread_create(&tid, NULL, dot_client_thread, dc);
@@ -336,6 +353,7 @@ done:
     SSL_free(dc->ssl);
     close(dc->fd);
     free(dc);
+    g_tls_client_count--;
     return NULL;
 }
 
@@ -408,6 +426,13 @@ void *doh_server_thread(void *arg)
             continue;
         }
 
+        if (g_tls_client_count >= MAX_TLS_CLIENTS) {
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            close(cfd);
+            continue;
+        }
+
         dot_client_t *dc = malloc(sizeof(dot_client_t));
         if (!dc) {
             SSL_shutdown(ssl);
@@ -417,6 +442,7 @@ void *doh_server_thread(void *arg)
         }
         dc->ssl = ssl;
         dc->fd = cfd;
+        g_tls_client_count++;
 
         pthread_t tid;
         pthread_create(&tid, NULL, doh_client_thread, dc);
