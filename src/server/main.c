@@ -29,8 +29,8 @@
 
 /* ── Global state (owned by main, declared in transport.h) ────────────────── */
 
-atomic_int      g_running = ATOMIC_VAR_INIT(1);
-int             g_server_fd = -1;
+atomic_int g_running = ATOMIC_VAR_INIT(1);
+int g_server_fd = -1;
 server_config_t g_config;
 
 /* ── Utility ──────────────────────────────────────────────────────────────── */
@@ -38,13 +38,15 @@ server_config_t g_config;
 static char *load_env(const char *name, const char *fallback)
 {
     const char *v = getenv(name);
-    if (v && v[0]) return strdup(v);
+    if (v && v[0])
+        return strdup(v);
     return fallback ? strdup(fallback) : NULL;
 }
 
 static int safe_atoi(const char *s)
 {
-    if (!s || !*s) return -1;
+    if (!s || !*s)
+        return -1;
     char *end;
     long val = strtol(s, &end, 10);
     if (*end != '\0' || val < 0 || val > 65535)
@@ -92,7 +94,8 @@ int main(void)
     if (home) {
         char config_env[512];
         snprintf(config_env, sizeof(config_env), "%s/.config/dnsclaw/.env", home);
-        if (access(config_env, R_OK) == 0) dotenv_found = 1;
+        if (access(config_env, R_OK) == 0)
+            dotenv_found = 1;
         load_dotenv(config_env);
     }
     const char *sudo_user = getenv("SUDO_USER");
@@ -100,55 +103,48 @@ int main(void)
         char sudo_env[512];
         struct passwd *pw = getpwnam(sudo_user);
         if (pw && pw->pw_dir) {
-            snprintf(sudo_env, sizeof(sudo_env),
-                     "%s/.config/dnsclaw/.env", pw->pw_dir);
-            if (access(sudo_env, R_OK) == 0) dotenv_found = 1;
+            snprintf(sudo_env, sizeof(sudo_env), "%s/.config/dnsclaw/.env", pw->pw_dir);
+            if (access(sudo_env, R_OK) == 0)
+                dotenv_found = 1;
             load_dotenv(sudo_env);
         }
     }
-    if (access("../.env", R_OK) == 0) dotenv_found = 1;
+    if (access("../.env", R_OK) == 0)
+        dotenv_found = 1;
     load_dotenv("../.env");
-    if (access(".env", R_OK) == 0) dotenv_found = 1;
+    if (access(".env", R_OK) == 0)
+        dotenv_found = 1;
     load_dotenv(".env");
 
     /* ── Multi-Provider Detection ─────────────────────────────────────────── */
     {
-        static const char *KEY_ENVS[] = {
-            "GEMINI_API_KEY", "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"
-        };
-        static const char *MODEL_ENVS[] = {
-            "GEMINI_MODEL", "OPENAI_MODEL",
-            "ANTHROPIC_MODEL", "OPENROUTER_MODEL"
-        };
+        static const char *KEY_ENVS[] = {"GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+                                         "OPENROUTER_API_KEY"};
+        static const char *MODEL_ENVS[] = {"GEMINI_MODEL", "OPENAI_MODEL", "ANTHROPIC_MODEL",
+                                           "OPENROUTER_MODEL"};
 
         int provider_found = 0;
 
         /* Check explicit LLM_PROVIDER override */
         const char *explicit_prov = getenv("LLM_PROVIDER");
         if (explicit_prov && explicit_prov[0]) {
-            static const char *slugs[] = {
-                "gemini", "openai", "anthropic", "openrouter"
-            };
+            static const char *slugs[] = {"gemini", "openai", "anthropic", "openrouter"};
             for (int i = 0; i < NUM_PROVIDERS; i++) {
                 if (strcasecmp(explicit_prov, slugs[i]) == 0) {
                     char *k = load_env(KEY_ENVS[i], NULL);
                     if (k && k[0]) {
                         g_config.provider = (llm_provider_t)i;
-                        strncpy(g_config.api_key, k,
-                                sizeof(g_config.api_key) - 1);
+                        strncpy(g_config.api_key, k, sizeof(g_config.api_key) - 1);
                         g_config.api_key[sizeof(g_config.api_key) - 1] = '\0';
                         free(k);
-                        char *m = load_env(MODEL_ENVS[i],
-                                           PROVIDER_DEFAULT_MODELS[i]);
-                        strncpy(g_config.model, m,
-                                sizeof(g_config.model) - 1);
+                        char *m = load_env(MODEL_ENVS[i], PROVIDER_DEFAULT_MODELS[i]);
+                        strncpy(g_config.model, m, sizeof(g_config.model) - 1);
                         g_config.model[sizeof(g_config.model) - 1] = '\0';
                         free(m);
                         provider_found = 1;
                     } else {
-                        log_err("FATAL", "LLM_PROVIDER=%s but %s is not set",
-                                explicit_prov, KEY_ENVS[i]);
+                        log_err("FATAL", "LLM_PROVIDER=%s but %s is not set", explicit_prov,
+                                KEY_ENVS[i]);
                         free(k);
                         curl_global_cleanup();
                         return 1;
@@ -158,9 +154,9 @@ int main(void)
             }
             if (!provider_found) {
                 log_err("FATAL",
-                    "Unknown LLM_PROVIDER '%s' "
-                    "(use gemini/openai/anthropic/openrouter)",
-                    explicit_prov);
+                        "Unknown LLM_PROVIDER '%s' "
+                        "(use gemini/openai/anthropic/openrouter)",
+                        explicit_prov);
                 curl_global_cleanup();
                 return 1;
             }
@@ -172,11 +168,9 @@ int main(void)
                 char *k = load_env(KEY_ENVS[i], NULL);
                 if (k && k[0]) {
                     g_config.provider = (llm_provider_t)i;
-                    strncpy(g_config.api_key, k,
-                            sizeof(g_config.api_key) - 1);
+                    strncpy(g_config.api_key, k, sizeof(g_config.api_key) - 1);
                     free(k);
-                    char *m = load_env(MODEL_ENVS[i],
-                                       PROVIDER_DEFAULT_MODELS[i]);
+                    char *m = load_env(MODEL_ENVS[i], PROVIDER_DEFAULT_MODELS[i]);
                     strncpy(g_config.model, m, sizeof(g_config.model) - 1);
                     free(m);
                     provider_found = 1;
@@ -193,53 +187,49 @@ int main(void)
 
             /* Diagnose common causes */
             if (!dotenv_found) {
-                fprintf(stderr, "  " CLR_R4 "Cause:" CLR_RESET
-                    " No .env config file found.\n");
+                fprintf(stderr, "  " CLR_R4 "Cause:" CLR_RESET " No .env config file found.\n");
                 fprintf(stderr, "  Searched:\n");
                 if (home)
                     fprintf(stderr, "    - %s/.config/dnsclaw/.env\n", home);
                 if (sudo_user && sudo_user[0]) {
                     struct passwd *pw2 = getpwnam(sudo_user);
                     if (pw2 && pw2->pw_dir)
-                        fprintf(stderr, "    - %s/.config/dnsclaw/.env"
-                            " (SUDO_USER=%s)\n", pw2->pw_dir, sudo_user);
+                        fprintf(stderr,
+                                "    - %s/.config/dnsclaw/.env"
+                                " (SUDO_USER=%s)\n",
+                                pw2->pw_dir, sudo_user);
                 }
                 fprintf(stderr, "    - ../.env\n");
                 fprintf(stderr, "    - ./.env\n");
             } else if (geteuid() == 0 && !sudo_user) {
-                fprintf(stderr, "  " CLR_R4 "Hint:" CLR_RESET
-                    " Running as root without " CLR_R3 "sudo -E" CLR_RESET
-                    " — your user's .env may not be visible.\n");
-                fprintf(stderr, "  Try: " CLR_R3
-                    "sudo -E dnsclaw-server" CLR_RESET "\n");
+                fprintf(stderr, "  " CLR_R4 "Hint:" CLR_RESET " Running as root without " CLR_R3
+                                "sudo -E" CLR_RESET " — your user's .env may not be visible.\n");
+                fprintf(stderr, "  Try: " CLR_R3 "sudo -E dnsclaw-server" CLR_RESET "\n");
             } else {
                 fprintf(stderr, "  " CLR_R4 "Hint:" CLR_RESET
-                    " A .env file was found but it contains no API key.\n");
+                                " A .env file was found but it contains no API key.\n");
             }
             fprintf(stderr, "\n");
             fprintf(stderr, "  To configure a provider, run one of:\n");
             fprintf(stderr, "    " CLR_R3 "./setup.sh" CLR_RESET
-                "                    (first-time setup)\n");
+                            "                    (first-time setup)\n");
             fprintf(stderr, "    " CLR_R3 "dnsclaw config --provider" CLR_RESET
-                "     (interactive provider setup)\n");
+                            "     (interactive provider setup)\n");
             fprintf(stderr, "    " CLR_R3 "dnsclaw config --edit" CLR_RESET
-                "         (edit config file directly)\n");
+                            "         (edit config file directly)\n");
             fprintf(stderr, "\n");
             curl_global_cleanup();
             return 1;
         }
 
-        strncpy(g_config.provider_name,
-                PROVIDER_NAMES[g_config.provider],
+        strncpy(g_config.provider_name, PROVIDER_NAMES[g_config.provider],
                 sizeof(g_config.provider_name) - 1);
         g_config.provider_name[sizeof(g_config.provider_name) - 1] = '\0';
     }
 
     /* ── Standard config ─────────────────────────────────────────────────── */
-    g_config.use_dot = getenv("USE_DOT") &&
-                       strcmp(getenv("USE_DOT"), "true") == 0;
-    g_config.use_doh = getenv("USE_DOH") &&
-                       strcmp(getenv("USE_DOH"), "true") == 0;
+    g_config.use_dot = getenv("USE_DOT") && strcmp(getenv("USE_DOT"), "true") == 0;
+    g_config.use_doh = getenv("USE_DOH") && strcmp(getenv("USE_DOH"), "true") == 0;
 
     char *port_str = load_env("SERVER_PORT", NULL);
     if (port_str) {
@@ -248,9 +238,12 @@ int main(void)
     }
 
     if (g_config.port <= 0) {
-        if (g_config.use_dot)      g_config.port = 853;
-        else if (g_config.use_doh) g_config.port = 443;
-        else                       g_config.port = 53;
+        if (g_config.use_dot)
+            g_config.port = 853;
+        else if (g_config.use_doh)
+            g_config.port = 443;
+        else
+            g_config.port = 53;
     }
 
     char *cert = load_env("TLS_CERT", "cert.pem");
@@ -275,14 +268,14 @@ int main(void)
 
     /* Banner */
     print_banner_to(stderr);
-    fprintf(stderr, CLR_R4 "  DNS-CLAW Server" CLR_DIM
-            "  v" DNS_CLAW_VERSION CLR_RESET "\n\n");
+    fprintf(stderr, CLR_R4 "  DNS-CLAW Server" CLR_DIM "  v" DNS_CLAW_VERSION CLR_RESET "\n\n");
 
     log_info("config", "Provider:  %s", g_config.provider_name);
     log_info("config", "Model:     %s", g_config.model);
     log_info("config", "Transport: %s",
-             g_config.use_doh ? "DoH (HTTPS)" :
-             g_config.use_dot ? "DoT (TLS)" : "UDP (plain)");
+             g_config.use_doh   ? "DoH (HTTPS)"
+             : g_config.use_dot ? "DoT (TLS)"
+                                : "UDP (plain)");
     log_info("config", "Encryption: %s",
              tunnel_crypto_enabled() ? "AES-256-GCM (PSK)" : "none (plaintext)");
     log_info("config", "Port:      %d", g_config.port);

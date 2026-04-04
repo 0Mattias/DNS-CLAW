@@ -33,11 +33,13 @@
  */
 static char *shell_escape(const char *s)
 {
-    if (!s) return NULL;
+    if (!s)
+        return NULL;
     /* Worst case: every char is a single quote → 4x expansion + 2 outer quotes + NUL */
     size_t len = strlen(s);
     char *out = malloc(len * 4 + 3);
-    if (!out) return NULL;
+    if (!out)
+        return NULL;
     size_t j = 0;
     out[j++] = '\'';
     for (size_t i = 0; i < len; i++) {
@@ -68,9 +70,9 @@ static void warn_suspicious_path(const char *path)
 
 /* ── Global session state ─────────────────────────────────────────────────── */
 
-char       g_session_id[64];
-int        g_msg_id = 0;
-int        g_turn   = 0;
+char g_session_id[64];
+int g_msg_id = 0;
+int g_turn = 0;
 atomic_int g_interrupted = 0;
 
 /* ── DNS Query Wrapper ────────────────────────────────────────────────────── */
@@ -78,14 +80,12 @@ atomic_int g_interrupted = 0;
 static int do_dns_query_once(const char *qname, char *txt_out, size_t txt_out_len)
 {
     if (g_cfg.use_doh) {
-        return dns_query_doh(g_cfg.server_addr, qname, g_cfg.insecure,
-                             txt_out, txt_out_len);
+        return dns_query_doh(g_cfg.server_addr, qname, g_cfg.insecure, txt_out, txt_out_len);
     } else if (g_cfg.use_dot) {
-        return dns_query_dot(g_cfg.server_addr, (uint16_t)g_cfg.port,
-                             qname, g_cfg.insecure, txt_out, txt_out_len);
+        return dns_query_dot(g_cfg.server_addr, (uint16_t)g_cfg.port, qname, g_cfg.insecure,
+                             txt_out, txt_out_len);
     } else {
-        return dns_query_udp(g_cfg.server_addr, (uint16_t)g_cfg.port,
-                             qname, txt_out, txt_out_len);
+        return dns_query_udp(g_cfg.server_addr, (uint16_t)g_cfg.port, qname, txt_out, txt_out_len);
     }
 }
 
@@ -95,10 +95,13 @@ int do_dns_query(const char *qname, char *txt_out, size_t txt_out_len)
     static const useconds_t BACKOFF_US[] = {0, 300000, 800000};
 
     for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        if (g_interrupted) return -1;
-        if (attempt > 0) usleep(BACKOFF_US[attempt]);
+        if (g_interrupted)
+            return -1;
+        if (attempt > 0)
+            usleep(BACKOFF_US[attempt]);
         int rc = do_dns_query_once(qname, txt_out, txt_out_len);
-        if (rc == 0) return 0;
+        if (rc == 0)
+            return 0;
     }
     return -1;
 }
@@ -122,15 +125,16 @@ int init_session(int show_msg)
     }
 
     char *p = txt;
-    while (*p == ' ' || *p == '\n' || *p == '\r') p++;
+    while (*p == ' ' || *p == '\n' || *p == '\r')
+        p++;
     strncpy(g_session_id, p, sizeof(g_session_id) - 1);
     size_t slen = strlen(g_session_id);
-    while (slen > 0 && (g_session_id[slen-1] == ' ' ||
-           g_session_id[slen-1] == '\n' || g_session_id[slen-1] == '\r'))
+    while (slen > 0 && (g_session_id[slen - 1] == ' ' || g_session_id[slen - 1] == '\n' ||
+                        g_session_id[slen - 1] == '\r'))
         g_session_id[--slen] = '\0';
 
     g_msg_id = 0;
-    g_turn   = 0;
+    g_turn = 0;
 
     if (show_msg) {
         set_fg_rgb(THEME_R2);
@@ -143,8 +147,7 @@ int init_session(int show_msg)
 
 /* ── Message Processing Loop ──────────────────────────────────────────────── */
 
-int process_message_loop(const char *type, const char *content,
-                         const char *tool_name)
+int process_message_loop(const char *type, const char *content, const char *tool_name)
 {
     cJSON *payload = cJSON_CreateObject();
     cJSON_AddStringToObject(payload, "type", type);
@@ -164,8 +167,7 @@ int process_message_loop(const char *type, const char *content,
         int current_mid = g_msg_id;
 
         char spin_msg[128];
-        snprintf(spin_msg, sizeof(spin_msg),
-                 "Transmitting [msg %d]...", current_mid);
+        snprintf(spin_msg, sizeof(spin_msg), "Transmitting [msg %d]...", current_mid);
         spinner_t sp;
         spinner_start(&sp, spin_msg);
 
@@ -186,8 +188,8 @@ int process_message_loop(const char *type, const char *content,
                 printf("  ✗ Out of memory\n" ANSI_RESET);
                 return -1;
             }
-            if (tunnel_encrypt((uint8_t *)payload_str, payload_len,
-                               encrypted_buf, &upload_len) < 0) {
+            if (tunnel_encrypt((uint8_t *)payload_str, payload_len, encrypted_buf, &upload_len) <
+                0) {
                 free(encrypted_buf);
                 free(payload_str);
                 spinner_stop(&sp);
@@ -208,19 +210,18 @@ int process_message_loop(const char *type, const char *content,
         int upload_ok = 1;
         for (size_t i = 0; i < upload_len && upload_ok; i += UPLOAD_CHUNK_SZ) {
             size_t clen = upload_len - i;
-            if (clen > UPLOAD_CHUNK_SZ) clen = UPLOAD_CHUNK_SZ;
+            if (clen > UPLOAD_CHUNK_SZ)
+                clen = UPLOAD_CHUNK_SZ;
 
-            base32_encode(upload_data + i, clen,
-                          b32_buf, sizeof(b32_buf));
+            base32_encode(upload_data + i, clen, b32_buf, sizeof(b32_buf));
 
             for (char *cp = b32_buf; *cp; cp++)
                 *cp = (char)tolower((unsigned char)*cp);
 
-            snprintf(qname, sizeof(qname), "%s.%d.up.%d.%s.llm.local.",
-                     b32_buf, seq, current_mid, g_session_id);
+            snprintf(qname, sizeof(qname), "%s.%d.up.%d.%s.llm.local.", b32_buf, seq, current_mid,
+                     g_session_id);
 
-            if (do_dns_query(qname, txt, sizeof(txt)) < 0 ||
-                strcmp(txt, "ACK") != 0) {
+            if (do_dns_query(qname, txt, sizeof(txt)) < 0 || strcmp(txt, "ACK") != 0) {
                 upload_ok = 0;
             }
             seq++;
@@ -240,10 +241,8 @@ int process_message_loop(const char *type, const char *content,
         snprintf(spin_msg, sizeof(spin_msg), "Waiting for agent...");
         spinner_set_message(&sp, spin_msg);
 
-        snprintf(qname, sizeof(qname), "fin.%d.%s.llm.local.",
-                 current_mid, g_session_id);
-        if (do_dns_query(qname, txt, sizeof(txt)) < 0 ||
-            strcmp(txt, "ACK") != 0) {
+        snprintf(qname, sizeof(qname), "fin.%d.%s.llm.local.", current_mid, g_session_id);
+        if (do_dns_query(qname, txt, sizeof(txt)) < 0 || strcmp(txt, "ACK") != 0) {
             spinner_stop(&sp);
             cJSON_Delete(payload);
             set_fg_rgb(255, 80, 80);
@@ -265,8 +264,8 @@ int process_message_loop(const char *type, const char *content,
         int poll_count = 0;
 
         while (!g_interrupted) {
-            snprintf(qname, sizeof(qname), "%d.%d.down.%s.llm.local.",
-                     down_seq, current_mid, g_session_id);
+            snprintf(qname, sizeof(qname), "%d.%d.down.%s.llm.local.", down_seq, current_mid,
+                     g_session_id);
             if (do_dns_query(qname, txt, sizeof(txt)) < 0) {
                 spinner_stop(&sp);
                 cJSON_Delete(payload);
@@ -278,12 +277,12 @@ int process_message_loop(const char *type, const char *content,
 
             if (strcmp(txt, "PENDING") == 0) {
                 poll_count++;
-                snprintf(spin_msg, sizeof(spin_msg),
-                         "Agent is thinking... (poll %d)", poll_count);
+                snprintf(spin_msg, sizeof(spin_msg), "Agent is thinking... (poll %d)", poll_count);
                 spinner_set_message(&sp, spin_msg);
                 /* Adaptive backoff: 100ms → 200ms → 400ms → ... → 3s max */
                 useconds_t delay = 100000u << (poll_count < 5 ? poll_count : 5);
-                if (delay > 3000000u) delay = 3000000u;
+                if (delay > 3000000u)
+                    delay = 3000000u;
                 usleep(delay);
                 continue;
             } else if (strcmp(txt, "EOF") == 0) {
@@ -308,8 +307,7 @@ int process_message_loop(const char *type, const char *content,
                 return -1;
             }
 
-            snprintf(spin_msg, sizeof(spin_msg),
-                     "Receiving chunk %d...", down_seq);
+            snprintf(spin_msg, sizeof(spin_msg), "Receiving chunk %d...", down_seq);
             spinner_set_message(&sp, spin_msg);
 
             if (resp_pos + (size_t)dlen < RESP_BUF_SIZE) {
@@ -333,8 +331,7 @@ int process_message_loop(const char *type, const char *content,
             uint8_t *decrypted = malloc(resp_pos);
             size_t dec_len = 0;
             if (!decrypted ||
-                tunnel_decrypt((uint8_t *)full_response, resp_pos,
-                               decrypted, &dec_len) != 0) {
+                tunnel_decrypt((uint8_t *)full_response, resp_pos, decrypted, &dec_len) != 0) {
                 free(decrypted);
                 free(full_response);
                 cJSON_Delete(payload);
@@ -358,13 +355,11 @@ int process_message_loop(const char *type, const char *content,
             return -1;
         }
 
-        const char *resp_type = cJSON_GetStringValue(
-            cJSON_GetObjectItem(resp_json, "type"));
+        const char *resp_type = cJSON_GetStringValue(cJSON_GetObjectItem(resp_json, "type"));
 
         if (resp_type && strcmp(resp_type, "tool_call") == 0) {
             /* ── Tool call ───────────────────────────────────────── */
-            const char *fn = cJSON_GetStringValue(
-                cJSON_GetObjectItem(resp_json, "tool_name"));
+            const char *fn = cJSON_GetStringValue(cJSON_GetObjectItem(resp_json, "tool_name"));
             cJSON *args = cJSON_GetObjectItem(resp_json, "tool_args");
 
             printf("\n");
@@ -379,11 +374,9 @@ int process_message_loop(const char *type, const char *content,
             char tool_result[TOOL_RESULT_SIZE] = {0};
 
             if (fn && strcmp(fn, "client_execute_bash") == 0) {
-                const char *cmd = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(args, "command"));
+                const char *cmd = cJSON_GetStringValue(cJSON_GetObjectItem(args, "command"));
                 if (!cmd) {
-                    snprintf(tool_result, sizeof(tool_result),
-                             "Error: Invalid command argument");
+                    snprintf(tool_result, sizeof(tool_result), "Error: Invalid command argument");
                 } else {
                     set_fg_rgb(THEME_DIM);
                     printf("  │\n");
@@ -408,10 +401,10 @@ int process_message_loop(const char *type, const char *content,
                     char confirm[32] = {0};
                     if (fgets(confirm, sizeof(confirm), stdin)) {
                         char *c = confirm;
-                        while (*c == ' ') c++;
+                        while (*c == ' ')
+                            c++;
 
-                        if (c[0] == 'y' || c[0] == 'Y' ||
-                            c[0] == '\n' || c[0] == '\0') {
+                        if (c[0] == 'y' || c[0] == 'Y' || c[0] == '\n' || c[0] == '\0') {
                             FILE *proc = popen(cmd, "r");
                             if (!proc) {
                                 snprintf(tool_result, sizeof(tool_result),
@@ -420,9 +413,9 @@ int process_message_loop(const char *type, const char *content,
                                 size_t total = 0;
                                 while (total < sizeof(tool_result) - 1) {
                                     size_t n = fread(tool_result + total, 1,
-                                                     sizeof(tool_result) - 1 - total,
-                                                     proc);
-                                    if (n == 0) break;
+                                                     sizeof(tool_result) - 1 - total, proc);
+                                    if (n == 0)
+                                        break;
                                     total += n;
                                 }
                                 tool_result[total] = '\0';
@@ -437,22 +430,19 @@ int process_message_loop(const char *type, const char *content,
                             set_fg_rgb(THEME_R1);
                             printf("  ✗ Rejected\n" ANSI_RESET);
                             snprintf(tool_result, sizeof(tool_result),
-                                "User rejected command execution. "
-                                "Ask what they'd like instead.");
+                                     "User rejected command execution. "
+                                     "Ask what they'd like instead.");
                         }
                     }
                     if (strlen(tool_result) > TOOL_RESULT_SIZE - 16) {
-                        snprintf(tool_result + TOOL_RESULT_SIZE - 16, 16,
-                                 "\n...[truncated]");
+                        snprintf(tool_result + TOOL_RESULT_SIZE - 16, 16, "\n...[truncated]");
                     }
                 }
 
             } else if (fn && strcmp(fn, "client_read_file") == 0) {
-                const char *fpath = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(args, "filepath"));
+                const char *fpath = cJSON_GetStringValue(cJSON_GetObjectItem(args, "filepath"));
                 if (!fpath) {
-                    snprintf(tool_result, sizeof(tool_result),
-                             "Error: Invalid filepath");
+                    snprintf(tool_result, sizeof(tool_result), "Error: Invalid filepath");
                 } else {
                     set_fg_rgb(THEME_DIM);
                     printf("  │ ");
@@ -462,27 +452,22 @@ int process_message_loop(const char *type, const char *content,
                     FILE *fp = fopen(fpath, "r");
                     if (!fp) {
                         printf("\n");
-                        snprintf(tool_result, sizeof(tool_result),
-                                 "Error: %s", strerror(errno));
+                        snprintf(tool_result, sizeof(tool_result), "Error: %s", strerror(errno));
                     } else {
-                        size_t total = fread(tool_result, 1,
-                                             sizeof(tool_result) - 1, fp);
+                        size_t total = fread(tool_result, 1, sizeof(tool_result) - 1, fp);
                         tool_result[total] = '\0';
                         fclose(fp);
                         set_fg_rgb(THEME_DIM);
                         printf(" (%zu bytes)\n" ANSI_RESET, total);
                         if (total > TOOL_RESULT_SIZE - 16) {
-                            snprintf(tool_result + TOOL_RESULT_SIZE - 16, 16,
-                                     "\n...[truncated]");
+                            snprintf(tool_result + TOOL_RESULT_SIZE - 16, 16, "\n...[truncated]");
                         }
                     }
                 }
 
             } else if (fn && strcmp(fn, "client_write_file") == 0) {
-                const char *fpath = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(args, "filepath"));
-                const char *fcontent = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(args, "content"));
+                const char *fpath = cJSON_GetStringValue(cJSON_GetObjectItem(args, "filepath"));
+                const char *fcontent = cJSON_GetStringValue(cJSON_GetObjectItem(args, "content"));
                 if (!fpath || !fcontent) {
                     snprintf(tool_result, sizeof(tool_result),
                              "Error: Missing filepath or content");
@@ -490,8 +475,7 @@ int process_message_loop(const char *type, const char *content,
                     set_fg_rgb(THEME_DIM);
                     printf("  │ ");
                     set_fg_rgb(THEME_R3);
-                    printf("📝 Writing: %s (%zu bytes)\n" ANSI_RESET,
-                           fpath, strlen(fcontent));
+                    printf("📝 Writing: %s (%zu bytes)\n" ANSI_RESET, fpath, strlen(fcontent));
                     warn_suspicious_path(fpath);
 
                     printf("  ");
@@ -507,31 +491,29 @@ int process_message_loop(const char *type, const char *content,
                     char confirm[32] = {0};
                     if (fgets(confirm, sizeof(confirm), stdin)) {
                         char *c = confirm;
-                        while (*c == ' ') c++;
-                        if (c[0] == 'y' || c[0] == 'Y' ||
-                            c[0] == '\n' || c[0] == '\0') {
+                        while (*c == ' ')
+                            c++;
+                        if (c[0] == 'y' || c[0] == 'Y' || c[0] == '\n' || c[0] == '\0') {
                             FILE *fp = fopen(fpath, "w");
                             if (!fp) {
-                                snprintf(tool_result, sizeof(tool_result),
-                                         "Error: %s", strerror(errno));
+                                snprintf(tool_result, sizeof(tool_result), "Error: %s",
+                                         strerror(errno));
                             } else {
                                 fwrite(fcontent, 1, strlen(fcontent), fp);
                                 fclose(fp);
-                                snprintf(tool_result, sizeof(tool_result),
-                                         "Wrote %zu bytes to %s",
+                                snprintf(tool_result, sizeof(tool_result), "Wrote %zu bytes to %s",
                                          strlen(fcontent), fpath);
                             }
                         } else {
-                            snprintf(tool_result, sizeof(tool_result),
-                                "User rejected file write.");
+                            snprintf(tool_result, sizeof(tool_result), "User rejected file write.");
                         }
                     }
                 }
 
             } else if (fn && strcmp(fn, "client_list_directory") == 0) {
-                const char *dpath = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(args, "path"));
-                if (!dpath || !dpath[0]) dpath = ".";
+                const char *dpath = cJSON_GetStringValue(cJSON_GetObjectItem(args, "path"));
+                if (!dpath || !dpath[0])
+                    dpath = ".";
 
                 set_fg_rgb(THEME_DIM);
                 printf("  │ ");
@@ -540,8 +522,7 @@ int process_message_loop(const char *type, const char *content,
 
                 DIR *dir = opendir(dpath);
                 if (!dir) {
-                    snprintf(tool_result, sizeof(tool_result),
-                             "Error: %s", strerror(errno));
+                    snprintf(tool_result, sizeof(tool_result), "Error: %s", strerror(errno));
                 } else {
                     struct dirent *ent;
                     size_t pos = 0;
@@ -553,16 +534,16 @@ int process_message_loop(const char *type, const char *content,
                         struct stat st;
                         const char *type_str = "";
                         if (stat(fullpath, &st) == 0) {
-                            if (S_ISDIR(st.st_mode)) type_str = "dir  ";
-                            else                     type_str = "file ";
-                            pos += (size_t)snprintf(tool_result + pos,
-                                sizeof(tool_result) - pos,
-                                "%s %8lld  %s\n",
-                                type_str, (long long)st.st_size, ent->d_name);
+                            if (S_ISDIR(st.st_mode))
+                                type_str = "dir  ";
+                            else
+                                type_str = "file ";
+                            pos += (size_t)snprintf(tool_result + pos, sizeof(tool_result) - pos,
+                                                    "%s %8lld  %s\n", type_str,
+                                                    (long long)st.st_size, ent->d_name);
                         } else {
-                            pos += (size_t)snprintf(tool_result + pos,
-                                sizeof(tool_result) - pos,
-                                "???   %s\n", ent->d_name);
+                            pos += (size_t)snprintf(tool_result + pos, sizeof(tool_result) - pos,
+                                                    "???   %s\n", ent->d_name);
                         }
                     }
                     closedir(dir);
@@ -571,12 +552,9 @@ int process_message_loop(const char *type, const char *content,
                 }
 
             } else if (fn && strcmp(fn, "client_edit_file") == 0) {
-                const char *fpath = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(args, "filepath"));
-                const char *old_str = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(args, "old_string"));
-                const char *new_str = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(args, "new_string"));
+                const char *fpath = cJSON_GetStringValue(cJSON_GetObjectItem(args, "filepath"));
+                const char *old_str = cJSON_GetStringValue(cJSON_GetObjectItem(args, "old_string"));
+                const char *new_str = cJSON_GetStringValue(cJSON_GetObjectItem(args, "new_string"));
                 if (!fpath || !old_str || !new_str) {
                     snprintf(tool_result, sizeof(tool_result),
                              "Error: Missing filepath, old_string, or new_string");
@@ -600,14 +578,14 @@ int process_message_loop(const char *type, const char *content,
                     char confirm[32] = {0};
                     if (fgets(confirm, sizeof(confirm), stdin)) {
                         char *c = confirm;
-                        while (*c == ' ') c++;
-                        if (c[0] == 'y' || c[0] == 'Y' ||
-                            c[0] == '\n' || c[0] == '\0') {
+                        while (*c == ' ')
+                            c++;
+                        if (c[0] == 'y' || c[0] == 'Y' || c[0] == '\n' || c[0] == '\0') {
                             /* Read file */
                             FILE *fp = fopen(fpath, "r");
                             if (!fp) {
-                                snprintf(tool_result, sizeof(tool_result),
-                                         "Error: %s", strerror(errno));
+                                snprintf(tool_result, sizeof(tool_result), "Error: %s",
+                                         strerror(errno));
                             } else {
                                 fseek(fp, 0, SEEK_END);
                                 long fsize = ftell(fp);
@@ -644,35 +622,41 @@ int process_message_loop(const char *type, const char *content,
                                                 size_t new_len = strlen(new_str);
                                                 size_t prefix_len = (size_t)(match - file_buf);
                                                 if (prefix_len + old_len > rd) {
-                                                    snprintf(tool_result, sizeof(tool_result),
-                                                             "Error: string match exceeds file bounds");
+                                                    snprintf(
+                                                        tool_result, sizeof(tool_result),
+                                                        "Error: string match exceeds file bounds");
                                                 } else {
-                                                size_t suffix_len = rd - prefix_len - old_len;
-                                                size_t new_size = prefix_len + new_len + suffix_len;
-                                                char *result = malloc(new_size + 1);
-                                                if (!result) {
-                                                    snprintf(tool_result, sizeof(tool_result),
-                                                             "Error: Out of memory");
-                                                } else {
-                                                    memcpy(result, file_buf, prefix_len);
-                                                    memcpy(result + prefix_len, new_str, new_len);
-                                                    memcpy(result + prefix_len + new_len,
-                                                           match + old_len, suffix_len);
-                                                    result[new_size] = '\0';
-
-                                                    FILE *wfp = fopen(fpath, "w");
-                                                    if (!wfp) {
+                                                    size_t suffix_len = rd - prefix_len - old_len;
+                                                    size_t new_size =
+                                                        prefix_len + new_len + suffix_len;
+                                                    char *result = malloc(new_size + 1);
+                                                    if (!result) {
                                                         snprintf(tool_result, sizeof(tool_result),
-                                                                 "Error: %s", strerror(errno));
+                                                                 "Error: Out of memory");
                                                     } else {
-                                                        fwrite(result, 1, new_size, wfp);
-                                                        fclose(wfp);
-                                                        snprintf(tool_result, sizeof(tool_result),
-                                                                 "Applied edit to %s (%zu bytes → %zu bytes)",
-                                                                 fpath, rd, new_size);
+                                                        memcpy(result, file_buf, prefix_len);
+                                                        memcpy(result + prefix_len, new_str,
+                                                               new_len);
+                                                        memcpy(result + prefix_len + new_len,
+                                                               match + old_len, suffix_len);
+                                                        result[new_size] = '\0';
+
+                                                        FILE *wfp = fopen(fpath, "w");
+                                                        if (!wfp) {
+                                                            snprintf(tool_result,
+                                                                     sizeof(tool_result),
+                                                                     "Error: %s", strerror(errno));
+                                                        } else {
+                                                            fwrite(result, 1, new_size, wfp);
+                                                            fclose(wfp);
+                                                            snprintf(tool_result,
+                                                                     sizeof(tool_result),
+                                                                     "Applied edit to %s (%zu "
+                                                                     "bytes → %zu bytes)",
+                                                                     fpath, rd, new_size);
+                                                        }
+                                                        free(result);
                                                     }
-                                                    free(result);
-                                                }
                                                 }
                                             }
                                         }
@@ -681,80 +665,76 @@ int process_message_loop(const char *type, const char *content,
                                 }
                             }
                         } else {
-                            snprintf(tool_result, sizeof(tool_result),
-                                     "User rejected file edit.");
+                            snprintf(tool_result, sizeof(tool_result), "User rejected file edit.");
                         }
                     }
                 }
 
             } else if (fn && strcmp(fn, "client_search_files") == 0) {
-                const char *pattern = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(args, "pattern"));
-                const char *spath = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(args, "path"));
-                const char *include = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(args, "include"));
+                const char *pattern = cJSON_GetStringValue(cJSON_GetObjectItem(args, "pattern"));
+                const char *spath = cJSON_GetStringValue(cJSON_GetObjectItem(args, "path"));
+                const char *include = cJSON_GetStringValue(cJSON_GetObjectItem(args, "include"));
                 if (!pattern) {
-                    snprintf(tool_result, sizeof(tool_result),
-                             "Error: Missing pattern");
+                    snprintf(tool_result, sizeof(tool_result), "Error: Missing pattern");
                 } else {
-                    if (!spath || !spath[0]) spath = ".";
+                    if (!spath || !spath[0])
+                        spath = ".";
                     set_fg_rgb(THEME_DIM);
                     printf("  │ ");
                     set_fg_rgb(THEME_R3);
                     printf("🔍 grep '%s' in %s", pattern, spath);
-                    if (include) printf(" (%s)", include);
+                    if (include)
+                        printf(" (%s)", include);
                     printf("\n" ANSI_RESET);
 
                     char *esc_pattern = shell_escape(pattern);
                     char *esc_path = shell_escape(spath);
                     char *esc_include = include ? shell_escape(include) : NULL;
                     if (!esc_pattern || !esc_path || (include && !esc_include)) {
-                        free(esc_pattern); free(esc_path); free(esc_include);
-                        snprintf(tool_result, sizeof(tool_result),
-                                 "Error: Out of memory");
+                        free(esc_pattern);
+                        free(esc_path);
+                        free(esc_include);
+                        snprintf(tool_result, sizeof(tool_result), "Error: Out of memory");
                         goto search_done;
                     }
                     char cmd[4096];
                     if (include) {
                         snprintf(cmd, sizeof(cmd),
-                                 "grep -rn --include=%s -- %s %s 2>&1 | head -200",
-                                 esc_include, esc_pattern, esc_path);
+                                 "grep -rn --include=%s -- %s %s 2>&1 | head -200", esc_include,
+                                 esc_pattern, esc_path);
                     } else {
-                        snprintf(cmd, sizeof(cmd),
-                                 "grep -rn -- %s %s 2>&1 | head -200",
+                        snprintf(cmd, sizeof(cmd), "grep -rn -- %s %s 2>&1 | head -200",
                                  esc_pattern, esc_path);
                     }
-                    free(esc_pattern); free(esc_path); free(esc_include);
+                    free(esc_pattern);
+                    free(esc_path);
+                    free(esc_include);
                     FILE *proc = popen(cmd, "r");
                     if (!proc) {
-                        snprintf(tool_result, sizeof(tool_result),
-                                 "Error: popen failed: %s", strerror(errno));
+                        snprintf(tool_result, sizeof(tool_result), "Error: popen failed: %s",
+                                 strerror(errno));
                     } else {
                         size_t total = 0;
                         while (total < sizeof(tool_result) - 1) {
                             size_t n = fread(tool_result + total, 1,
                                              sizeof(tool_result) - 1 - total, proc);
-                            if (n == 0) break;
+                            if (n == 0)
+                                break;
                             total += n;
                         }
                         tool_result[total] = '\0';
                         pclose(proc);
                         if (total == 0)
-                            snprintf(tool_result, sizeof(tool_result),
-                                     "(no matches)");
+                            snprintf(tool_result, sizeof(tool_result), "(no matches)");
                     }
                 }
-                search_done: ;
+            search_done:;
 
             } else if (fn && strcmp(fn, "client_fetch_url") == 0) {
-                const char *url = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(args, "url"));
+                const char *url = cJSON_GetStringValue(cJSON_GetObjectItem(args, "url"));
                 if (!url) {
-                    snprintf(tool_result, sizeof(tool_result),
-                             "Error: Missing url");
-                } else if (strncmp(url, "http://", 7) != 0 &&
-                           strncmp(url, "https://", 8) != 0) {
+                    snprintf(tool_result, sizeof(tool_result), "Error: Missing url");
+                } else if (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0) {
                     snprintf(tool_result, sizeof(tool_result),
                              "Error: Only http:// and https:// URLs are allowed");
                 } else {
@@ -765,52 +745,52 @@ int process_message_loop(const char *type, const char *content,
 
                     char *esc_url = shell_escape(url);
                     if (!esc_url) {
-                        snprintf(tool_result, sizeof(tool_result),
-                                 "Error: Out of memory");
+                        snprintf(tool_result, sizeof(tool_result), "Error: Out of memory");
                         goto fetch_done;
                     }
                     char cmd[4096];
                     snprintf(cmd, sizeof(cmd),
-                             "curl -sL --max-time 15 --max-filesize 1048576 %s 2>&1",
-                             esc_url);
+                             "curl -sL --max-time 15 --max-filesize 1048576 %s 2>&1", esc_url);
                     free(esc_url);
                     FILE *proc = popen(cmd, "r");
                     if (!proc) {
-                        snprintf(tool_result, sizeof(tool_result),
-                                 "Error: popen failed: %s", strerror(errno));
+                        snprintf(tool_result, sizeof(tool_result), "Error: popen failed: %s",
+                                 strerror(errno));
                     } else {
                         size_t total = 0;
                         while (total < sizeof(tool_result) - 1) {
                             size_t n = fread(tool_result + total, 1,
                                              sizeof(tool_result) - 1 - total, proc);
-                            if (n == 0) break;
+                            if (n == 0)
+                                break;
                             total += n;
                         }
                         tool_result[total] = '\0';
                         pclose(proc);
                         if (total == 0)
-                            snprintf(tool_result, sizeof(tool_result),
-                                     "(empty response)");
+                            snprintf(tool_result, sizeof(tool_result), "(empty response)");
                     }
                 }
-                fetch_done: ;
+            fetch_done:;
 
             } else {
-                snprintf(tool_result, sizeof(tool_result),
-                         "Error: Unknown tool '%s'", fn ? fn : "(null)");
+                snprintf(tool_result, sizeof(tool_result), "Error: Unknown tool '%s'",
+                         fn ? fn : "(null)");
             }
 
             /* Print result in bordered box */
             set_fg_rgb(THEME_DIM);
             printf("  │\n");
             int w = term_width() - 6;
-            if (w > 120) w = 120;
+            if (w > 120)
+                w = 120;
 
             const char *rl = tool_result;
             while (*rl) {
                 const char *nl = strchr(rl, '\n');
                 size_t ll = nl ? (size_t)(nl - rl) : strlen(rl);
-                if (ll > (size_t)w) ll = (size_t)w;
+                if (ll > (size_t)w)
+                    ll = (size_t)w;
                 set_fg_rgb(THEME_DIM);
                 printf("  │ " ANSI_RESET ANSI_DIM);
                 fwrite(rl, 1, ll, stdout);
@@ -820,7 +800,8 @@ int process_message_loop(const char *type, const char *content,
 
             set_fg_rgb(THEME_DIM);
             printf("  └");
-            for (int i = 0; i < w; i++) printf("─");
+            for (int i = 0; i < w; i++)
+                printf("─");
             printf("\n" ANSI_RESET);
 
             /* Continue loop with tool response */
@@ -835,22 +816,23 @@ int process_message_loop(const char *type, const char *content,
             }
             cJSON_AddStringToObject(payload, "type", "tool_response");
             cJSON_AddStringToObject(payload, "content", tool_result);
-            if (fn) cJSON_AddStringToObject(payload, "tool_name", fn);
+            if (fn)
+                cJSON_AddStringToObject(payload, "tool_name", fn);
             continue;
 
         } else {
             /* ── Text response ───────────────────────────────────── */
-            const char *text = cJSON_GetStringValue(
-                cJSON_GetObjectItem(resp_json, "content"));
+            const char *text = cJSON_GetStringValue(cJSON_GetObjectItem(resp_json, "content"));
 
             double elapsed = (now_ms() - round_start) / 1000.0;
 
             printf("\n");
             set_bg_rgb(THEME_R1);
             set_fg_rgb(255, 255, 255);
-            const char *prov_name = cJSON_GetStringValue(
-                cJSON_GetObjectItem(resp_json, "provider"));
-            if (!prov_name || !prov_name[0]) prov_name = "Agent";
+            const char *prov_name =
+                cJSON_GetStringValue(cJSON_GetObjectItem(resp_json, "provider"));
+            if (!prov_name || !prov_name[0])
+                prov_name = "Agent";
             printf(ANSI_BOLD " ✦ %s " ANSI_RESET, prov_name);
             set_fg_rgb(THEME_DIM);
             printf(" %.1fs", elapsed);

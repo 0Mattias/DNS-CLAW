@@ -40,13 +40,13 @@ void print_help(void)
     printf("  ──────────────────────────────────────────\n" ANSI_RESET);
 
     const char *cmds[][2] = {
-        {"/help",            "Show this help"},
-        {"/clear",           "Start a new chat session"},
+        {"/help", "Show this help"},
+        {"/clear", "Start a new chat session"},
         {"/compact [focus]", "Compact conversation context"},
-        {"/export [file]",   "Export conversation to markdown"},
-        {"/config",          "Show current configuration"},
-        {"/status",          "Show session info"},
-        {"/exit",            "Exit the application"},
+        {"/export [file]", "Export conversation to markdown"},
+        {"/config", "Show current configuration"},
+        {"/status", "Show session info"},
+        {"/exit", "Exit the application"},
     };
     for (int i = 0; i < 7; i++) {
         set_fg_rgb(THEME_R2);
@@ -71,7 +71,8 @@ void print_usage(const char *argv0)
     printf("\nConfig subcommands:\n");
     printf("  config            Show current configuration\n");
     printf("  config --edit     Open config in $EDITOR\n");
-    printf("  config --set K=V  Set a config value (e.g. --set ANTHROPIC_MODEL=claude-sonnet-4-6)\n");
+    printf(
+        "  config --set K=V  Set a config value (e.g. --set ANTHROPIC_MODEL=claude-sonnet-4-6)\n");
     printf("  config --provider Re-run interactive provider setup\n");
 }
 
@@ -81,7 +82,8 @@ static const char *config_path(void)
 {
     static char path[512];
     const char *home = getenv("HOME");
-    if (!home) return NULL;
+    if (!home)
+        return NULL;
     snprintf(path, sizeof(path), "%s/.config/dnsclaw/.env", home);
     return path;
 }
@@ -107,11 +109,11 @@ void config_show(void)
     /* Detect provider */
     const char *provider = "none";
     const char *model = "default";
-    const char *key_names[] = {"GEMINI_API_KEY", "OPENAI_API_KEY",
-                                "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"};
+    const char *key_names[] = {"GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+                               "OPENROUTER_API_KEY"};
     const char *prov_names[] = {"Gemini", "OpenAI", "Claude (Anthropic)", "OpenRouter"};
-    const char *model_envs[] = {"GEMINI_MODEL", "OPENAI_MODEL",
-                                 "ANTHROPIC_MODEL", "OPENROUTER_MODEL"};
+    const char *model_envs[] = {"GEMINI_MODEL", "OPENAI_MODEL", "ANTHROPIC_MODEL",
+                                "OPENROUTER_MODEL"};
 
     /* Check explicit provider first */
     const char *explicit = getenv("LLM_PROVIDER");
@@ -119,7 +121,10 @@ void config_show(void)
     if (explicit && explicit[0]) {
         const char *slugs[] = {"gemini", "openai", "anthropic", "openrouter"};
         for (int i = 0; i < 4; i++) {
-            if (strcasecmp(explicit, slugs[i]) == 0) { found = i; break; }
+            if (strcasecmp(explicit, slugs[i]) == 0) {
+                found = i;
+                break;
+            }
         }
     }
     /* Auto-detect */
@@ -136,7 +141,8 @@ void config_show(void)
     if (found >= 0) {
         provider = prov_names[found];
         const char *m = getenv(model_envs[found]);
-        if (m && m[0]) model = m;
+        if (m && m[0])
+            model = m;
     }
 
     set_fg_rgb(THEME_R2);
@@ -161,17 +167,22 @@ void config_show(void)
     int use_dot = (env = getenv("USE_DOT")) && strcmp(env, "true") == 0;
     int use_doh = (env = getenv("USE_DOH")) && strcmp(env, "true") == 0;
     set_fg_rgb(THEME_R2);
-    printf("  Transport:    " ANSI_RESET "%s\n",
-           use_doh ? "DoH (HTTPS)" : use_dot ? "DoT (TLS)" : "UDP");
+    printf("  Transport:    " ANSI_RESET "%s\n", use_doh   ? "DoH (HTTPS)"
+                                                 : use_dot ? "DoT (TLS)"
+                                                           : "UDP");
 
     /* Port */
     const char *port_env = getenv("SERVER_PORT");
     int port = 0;
-    if (port_env && port_env[0]) port = atoi(port_env);
+    if (port_env && port_env[0])
+        port = atoi(port_env);
     if (port <= 0) {
-        if (use_dot) port = 853;
-        else if (use_doh) port = 443;
-        else port = 53;
+        if (use_dot)
+            port = 853;
+        else if (use_doh)
+            port = 443;
+        else
+            port = 53;
     }
     set_fg_rgb(THEME_R2);
     printf("  Port:         " ANSI_RESET "%d%s\n", port,
@@ -180,8 +191,10 @@ void config_show(void)
     /* Server address */
     const char *addr = getenv("DNS_SERVER_ADDR");
     if (!addr || !addr[0]) {
-        if (use_doh) addr = "https://127.0.0.1/dns-query";
-        else addr = "127.0.0.1";
+        if (use_doh)
+            addr = "https://127.0.0.1/dns-query";
+        else
+            addr = "127.0.0.1";
     }
     set_fg_rgb(THEME_R2);
     printf("  Server:       " ANSI_RESET "%s\n", addr);
@@ -195,8 +208,7 @@ void config_show(void)
     const char *sp = getenv("SYSTEM_PROMPT");
     if (sp && sp[0]) {
         set_fg_rgb(THEME_R2);
-        printf("  System prompt:" ANSI_RESET " %.60s%s\n",
-               sp, strlen(sp) > 60 ? "..." : "");
+        printf("  System prompt:" ANSI_RESET " %.60s%s\n", sp, strlen(sp) > 60 ? "..." : "");
     }
 
     printf("\n");
@@ -241,8 +253,10 @@ void config_edit(void)
     }
 
     const char *editor = getenv("EDITOR");
-    if (!editor) editor = getenv("VISUAL");
-    if (!editor) editor = "vi";
+    if (!editor)
+        editor = getenv("VISUAL");
+    if (!editor)
+        editor = "vi";
 
     pid_t pid = fork();
     if (pid == 0) {
@@ -266,7 +280,8 @@ int config_set(const char *key_value)
 
     char key[128] = {0};
     size_t klen = (size_t)(eq - key_value);
-    if (klen >= sizeof(key)) klen = sizeof(key) - 1;
+    if (klen >= sizeof(key))
+        klen = sizeof(key) - 1;
     memcpy(key, key_value, klen);
 
     const char *value = eq + 1;
@@ -292,17 +307,17 @@ int config_set(const char *key_value)
         while (nlines < 256 && fgets(lines[nlines], sizeof(lines[0]), f)) {
             /* Check if this line sets the same key */
             char *p = lines[nlines];
-            while (*p == ' ' || *p == '\t') p++;
+            while (*p == ' ' || *p == '\t')
+                p++;
             if (*p != '#' && *p != '\n' && *p != '\0') {
                 char *e = strchr(p, '=');
                 if (e) {
                     size_t lklen = (size_t)(e - p);
                     /* Trim trailing whitespace from key */
-                    while (lklen > 0 && (p[lklen-1] == ' ' || p[lklen-1] == '\t'))
+                    while (lklen > 0 && (p[lklen - 1] == ' ' || p[lklen - 1] == '\t'))
                         lklen--;
                     if (lklen == strlen(key) && strncmp(p, key, lklen) == 0) {
-                        snprintf(lines[nlines], sizeof(lines[0]),
-                                 "%s=\"%s\"\n", key, value);
+                        snprintf(lines[nlines], sizeof(lines[0]), "%s=\"%s\"\n", key, value);
                         found = 1;
                     }
                 }
@@ -310,15 +325,15 @@ int config_set(const char *key_value)
             /* Also uncomment matching commented lines */
             if (!found && *p == '#') {
                 p++;
-                while (*p == ' ' || *p == '\t') p++;
+                while (*p == ' ' || *p == '\t')
+                    p++;
                 char *e = strchr(p, '=');
                 if (e) {
                     size_t lklen = (size_t)(e - p);
-                    while (lklen > 0 && (p[lklen-1] == ' ' || p[lklen-1] == '\t'))
+                    while (lklen > 0 && (p[lklen - 1] == ' ' || p[lklen - 1] == '\t'))
                         lklen--;
                     if (lklen == strlen(key) && strncmp(p, key, lklen) == 0) {
-                        snprintf(lines[nlines], sizeof(lines[0]),
-                                 "%s=\"%s\"\n", key, value);
+                        snprintf(lines[nlines], sizeof(lines[0]), "%s=\"%s\"\n", key, value);
                         found = 1;
                     }
                 }
@@ -351,21 +366,13 @@ int config_set(const char *key_value)
 
 int config_provider_interactive(void)
 {
-    static const char *key_names[] = {
-        "GEMINI_API_KEY", "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"
-    };
-    static const char *model_names[] = {
-        "GEMINI_MODEL", "OPENAI_MODEL",
-        "ANTHROPIC_MODEL", "OPENROUTER_MODEL"
-    };
-    static const char *defaults[] = {
-        "gemini-3.1-pro-preview", "gpt-5.4",
-        "claude-sonnet-4-6", "openrouter/auto"
-    };
-    static const char *labels[] = {
-        "Gemini", "OpenAI", "Claude (Anthropic)", "OpenRouter"
-    };
+    static const char *key_names[] = {"GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+                                      "OPENROUTER_API_KEY"};
+    static const char *model_names[] = {"GEMINI_MODEL", "OPENAI_MODEL", "ANTHROPIC_MODEL",
+                                        "OPENROUTER_MODEL"};
+    static const char *defaults[] = {"gemini-3.1-pro-preview", "gpt-5.4", "claude-sonnet-4-6",
+                                     "openrouter/auto"};
+    static const char *labels[] = {"Gemini", "OpenAI", "Claude (Anthropic)", "OpenRouter"};
 
     printf("\n");
     set_fg_rgb(THEME_R1);
@@ -384,7 +391,8 @@ int config_provider_interactive(void)
     fflush(stdout);
 
     char buf[16];
-    if (!fgets(buf, sizeof(buf), stdin)) return 1;
+    if (!fgets(buf, sizeof(buf), stdin))
+        return 1;
     int choice = atoi(buf);
     if (choice < 1 || choice > 4) {
         fprintf(stderr, "  Invalid choice\n");
@@ -401,7 +409,7 @@ int config_provider_interactive(void)
     }
     /* Trim newline */
     size_t klen = strlen(key_buf);
-    while (klen > 0 && (key_buf[klen-1] == '\n' || key_buf[klen-1] == '\r'))
+    while (klen > 0 && (key_buf[klen - 1] == '\n' || key_buf[klen - 1] == '\r'))
         key_buf[--klen] = '\0';
 
     printf("  Model (enter for %s): ", defaults[idx]);
@@ -409,7 +417,7 @@ int config_provider_interactive(void)
     char model_buf[128] = {0};
     if (fgets(model_buf, sizeof(model_buf), stdin)) {
         size_t mlen = strlen(model_buf);
-        while (mlen > 0 && (model_buf[mlen-1] == '\n' || model_buf[mlen-1] == '\r'))
+        while (mlen > 0 && (model_buf[mlen - 1] == '\n' || model_buf[mlen - 1] == '\r'))
             model_buf[--mlen] = '\0';
     }
     if (!model_buf[0])

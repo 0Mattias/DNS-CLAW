@@ -26,15 +26,13 @@ static void test_build_parse_query(void)
 static void test_build_parse_response_with_txt(void)
 {
     uint8_t buf[DNS_MAX_MSG];
-    int len = dns_build_response(0xABCD, "test.llm.local.",
-                                  DNS_RCODE_OK, "Hello World",
-                                  buf, sizeof(buf));
+    int len = dns_build_response(0xABCD, "test.llm.local.", DNS_RCODE_OK, "Hello World", buf,
+                                 sizeof(buf));
     assert(len > 0);
 
     int rcode;
     char txt[DNS_MAX_TXT];
-    assert(dns_parse_txt_response(buf, (size_t)len, &rcode,
-                                   txt, sizeof(txt)) == 0);
+    assert(dns_parse_txt_response(buf, (size_t)len, &rcode, txt, sizeof(txt)) == 0);
     assert(rcode == DNS_RCODE_OK);
     assert(strcmp(txt, "Hello World") == 0);
     PASS("build_parse_response_with_txt");
@@ -43,15 +41,13 @@ static void test_build_parse_response_with_txt(void)
 static void test_response_no_answer(void)
 {
     uint8_t buf[DNS_MAX_MSG];
-    int len = dns_build_response(0x0001, "x.llm.local.",
-                                  DNS_RCODE_NXDOMAIN, NULL,
-                                  buf, sizeof(buf));
+    int len =
+        dns_build_response(0x0001, "x.llm.local.", DNS_RCODE_NXDOMAIN, NULL, buf, sizeof(buf));
     assert(len > 0);
 
     int rcode;
     char txt[DNS_MAX_TXT];
-    assert(dns_parse_txt_response(buf, (size_t)len, &rcode,
-                                   txt, sizeof(txt)) == 0);
+    assert(dns_parse_txt_response(buf, (size_t)len, &rcode, txt, sizeof(txt)) == 0);
     assert(rcode == DNS_RCODE_NXDOMAIN);
     assert(txt[0] == '\0');
     PASS("response_no_answer");
@@ -65,15 +61,12 @@ static void test_long_txt(void)
     long_txt[sizeof(long_txt) - 1] = '\0';
 
     uint8_t buf[DNS_MAX_MSG];
-    int len = dns_build_response(0x0002, "t.llm.local.",
-                                  DNS_RCODE_OK, long_txt,
-                                  buf, sizeof(buf));
+    int len = dns_build_response(0x0002, "t.llm.local.", DNS_RCODE_OK, long_txt, buf, sizeof(buf));
     assert(len > 0);
 
     int rcode;
     char txt[DNS_MAX_TXT];
-    assert(dns_parse_txt_response(buf, (size_t)len, &rcode,
-                                   txt, sizeof(txt)) == 0);
+    assert(dns_parse_txt_response(buf, (size_t)len, &rcode, txt, sizeof(txt)) == 0);
     assert(strcmp(txt, long_txt) == 0);
     PASS("long_txt");
 }
@@ -83,15 +76,12 @@ static void test_roundtrip_session_id(void)
     /* Simulate the session init flow: server sends session ID as TXT */
     const char *sid = "a1b2c3d4e5f67890";
     uint8_t buf[DNS_MAX_MSG];
-    int len = dns_build_response(0x0003, "init.llm.local.",
-                                  DNS_RCODE_OK, sid,
-                                  buf, sizeof(buf));
+    int len = dns_build_response(0x0003, "init.llm.local.", DNS_RCODE_OK, sid, buf, sizeof(buf));
     assert(len > 0);
 
     int rcode;
     char txt[DNS_MAX_TXT];
-    assert(dns_parse_txt_response(buf, (size_t)len, &rcode,
-                                   txt, sizeof(txt)) == 0);
+    assert(dns_parse_txt_response(buf, (size_t)len, &rcode, txt, sizeof(txt)) == 0);
     assert(strcmp(txt, sid) == 0);
     PASS("roundtrip_session_id");
 }
@@ -101,8 +91,7 @@ static void test_truncated_message_rejected(void)
     uint8_t buf[8] = {0}; /* too short for DNS header */
     int rcode;
     char txt[64];
-    assert(dns_parse_txt_response(buf, sizeof(buf), &rcode,
-                                   txt, sizeof(txt)) == -1);
+    assert(dns_parse_txt_response(buf, sizeof(buf), &rcode, txt, sizeof(txt)) == -1);
     PASS("truncated_message_rejected");
 }
 
@@ -149,15 +138,12 @@ static void test_query_parse_truncated(void)
 static void test_empty_txt_roundtrip(void)
 {
     uint8_t buf[DNS_MAX_MSG];
-    int len = dns_build_response(0x0042, "t.llm.local.",
-                                  DNS_RCODE_OK, "",
-                                  buf, sizeof(buf));
+    int len = dns_build_response(0x0042, "t.llm.local.", DNS_RCODE_OK, "", buf, sizeof(buf));
     assert(len > 0);
 
     int rcode;
     char txt[DNS_MAX_TXT];
-    assert(dns_parse_txt_response(buf, (size_t)len, &rcode,
-                                   txt, sizeof(txt)) == 0);
+    assert(dns_parse_txt_response(buf, (size_t)len, &rcode, txt, sizeof(txt)) == 0);
     assert(rcode == DNS_RCODE_OK);
     assert(txt[0] == '\0');
     PASS("empty_txt_roundtrip");
@@ -203,15 +189,12 @@ static void test_response_rcode_preserved(void)
     int rcodes[] = {DNS_RCODE_OK, DNS_RCODE_FORMERR, DNS_RCODE_SERVFAIL, DNS_RCODE_NXDOMAIN};
     for (int i = 0; i < 4; i++) {
         uint8_t buf[DNS_MAX_MSG];
-        int len = dns_build_response(0x0001, "t.llm.local.",
-                                      rcodes[i], NULL,
-                                      buf, sizeof(buf));
+        int len = dns_build_response(0x0001, "t.llm.local.", rcodes[i], NULL, buf, sizeof(buf));
         assert(len > 0);
 
         int rcode;
         char txt[DNS_MAX_TXT];
-        assert(dns_parse_txt_response(buf, (size_t)len, &rcode,
-                                       txt, sizeof(txt)) == 0);
+        assert(dns_parse_txt_response(buf, (size_t)len, &rcode, txt, sizeof(txt)) == 0);
         assert(rcode == rcodes[i]);
     }
     PASS("response_rcode_preserved");

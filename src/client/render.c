@@ -24,12 +24,14 @@ int term_width(void)
 
 void set_fg_rgb(int r, int g, int b)
 {
-    if (!g_cfg.no_color) printf("\033[38;2;%d;%d;%dm", r, g, b);
+    if (!g_cfg.no_color)
+        printf("\033[38;2;%d;%d;%dm", r, g, b);
 }
 
 void set_bg_rgb(int r, int g, int b)
 {
-    if (!g_cfg.no_color) printf("\033[48;2;%d;%d;%dm", r, g, b);
+    if (!g_cfg.no_color)
+        printf("\033[48;2;%d;%d;%dm", r, g, b);
 }
 
 /* ── Timing ───────────────────────────────────────────────────────────────── */
@@ -54,7 +56,8 @@ void typewriter_putchar(int ch)
 
 void typewriter_puts(const char *s)
 {
-    while (*s) typewriter_putchar(*s++);
+    while (*s)
+        typewriter_putchar(*s++);
 }
 
 /* ── Inline Markdown ──────────────────────────────────────────────────────── */
@@ -144,7 +147,8 @@ void render_markdown(const char *text)
         const char *eol = strchr(line, '\n');
         size_t llen = eol ? (size_t)(eol - line) : strlen(line);
         char buf[4096];
-        if (llen >= sizeof(buf)) llen = sizeof(buf) - 1;
+        if (llen >= sizeof(buf))
+            llen = sizeof(buf) - 1;
         memcpy(buf, line, llen);
         buf[llen] = '\0';
 
@@ -159,15 +163,17 @@ void render_markdown(const char *text)
                     printf(" %s ", buf + 3);
                     set_fg_rgb(THEME_DIM);
                 }
-                int pad = term_width() - 10 - (buf[3] ? (int)strlen(buf+3) + 2 : 0);
-                for (int i = 0; i < pad && i < 120; i++) printf("─");
+                int pad = term_width() - 10 - (buf[3] ? (int)strlen(buf + 3) + 2 : 0);
+                for (int i = 0; i < pad && i < 120; i++)
+                    printf("─");
                 printf("┐\n" ANSI_RESET);
             } else {
                 in_code_block = 0;
                 set_fg_rgb(THEME_DIM);
                 printf("  └");
                 int pad = term_width() - 6;
-                for (int i = 0; i < pad && i < 120; i++) printf("─");
+                for (int i = 0; i < pad && i < 120; i++)
+                    printf("─");
                 printf("┘\n" ANSI_RESET);
             }
             line = eol ? eol + 1 : line + llen;
@@ -180,7 +186,8 @@ void render_markdown(const char *text)
             set_fg_rgb(THEME_TXT);
             printf("%s", buf);
             int pad = term_width() - 8 - (int)strlen(buf);
-            for (int i = 0; i < pad; i++) putchar(' ');
+            for (int i = 0; i < pad; i++)
+                putchar(' ');
             set_fg_rgb(THEME_DIM);
             printf(" │\n" ANSI_RESET);
             line = eol ? eol + 1 : line + llen;
@@ -190,9 +197,11 @@ void render_markdown(const char *text)
         /* Headings */
         if (buf[0] == '#') {
             int level = 0;
-            while (buf[level] == '#' && level < 6) level++;
+            while (buf[level] == '#' && level < 6)
+                level++;
             const char *heading = buf + level;
-            while (*heading == ' ') heading++;
+            while (*heading == ' ')
+                heading++;
 
             if (level == 1) {
                 printf("\n");
@@ -223,7 +232,8 @@ void render_markdown(const char *text)
         /* Blockquotes */
         if (buf[0] == '>') {
             const char *qt = buf + 1;
-            while (*qt == ' ') qt++;
+            while (*qt == ' ')
+                qt++;
             set_fg_rgb(THEME_DIM);
             printf("  ┃ ");
             set_fg_rgb(THEME_R4);
@@ -238,10 +248,14 @@ void render_markdown(const char *text)
         {
             int indent = 0;
             const char *lp = buf;
-            while (*lp == ' ') { lp++; indent++; }
+            while (*lp == ' ') {
+                lp++;
+                indent++;
+            }
             if ((*lp == '-' || *lp == '*' || *lp == '+') && lp[1] == ' ') {
                 int spaces = 2 + (indent / 2) * 2;
-                for (int i = 0; i < spaces; i++) putchar(' ');
+                for (int i = 0; i < spaces; i++)
+                    putchar(' ');
                 if (indent > 0) {
                     set_fg_rgb(THEME_R3);
                     printf("◦ ");
@@ -261,13 +275,18 @@ void render_markdown(const char *text)
         {
             const char *lp = buf;
             int indent = 0;
-            while (*lp == ' ') { lp++; indent++; }
+            while (*lp == ' ') {
+                lp++;
+                indent++;
+            }
             if (isdigit((unsigned char)lp[0])) {
                 const char *dot = lp;
-                while (isdigit((unsigned char)*dot)) dot++;
+                while (isdigit((unsigned char)*dot))
+                    dot++;
                 if (*dot == '.' && dot[1] == ' ') {
                     int spaces = 2 + (indent / 2) * 2;
-                    for (int i = 0; i < spaces; i++) putchar(' ');
+                    for (int i = 0; i < spaces; i++)
+                        putchar(' ');
                     set_fg_rgb(THEME_R2);
                     fwrite(lp, 1, (size_t)(dot - lp + 1), stdout);
                     printf(" " ANSI_RESET);
@@ -285,8 +304,10 @@ void render_markdown(const char *text)
             set_fg_rgb(THEME_DIM);
             printf("  ");
             int w = term_width() - 4;
-            if (w > 120) w = 120;
-            for (int i = 0; i < w; i++) printf("─");
+            if (w > 120)
+                w = 120;
+            for (int i = 0; i < w; i++)
+                printf("─");
             printf("\n" ANSI_RESET);
             line = eol ? eol + 1 : line + llen;
             continue;

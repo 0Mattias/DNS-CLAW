@@ -7,11 +7,11 @@
 #include <pthread.h>
 
 typedef struct {
-    char            message[256];
-    volatile int    running;
-    pthread_t       thread;
+    char message[256];
+    volatile int running;
+    pthread_t thread;
     pthread_mutex_t msg_lock;
-    double          start_time;
+    double start_time;
 } spinner_t;
 
 void spinner_start(spinner_t *s, const char *msg);

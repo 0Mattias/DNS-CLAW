@@ -28,14 +28,10 @@
 
 /* ── Provider tables ─────────────────────────────────────────────────────── */
 
-const char *PROVIDER_NAMES[] = {
-    "Gemini", "OpenAI", "Claude", "OpenRouter"
-};
+const char *PROVIDER_NAMES[] = {"Gemini", "OpenAI", "Claude", "OpenRouter"};
 
-const char *PROVIDER_DEFAULT_MODELS[] = {
-    "gemini-3.1-pro-preview", "gpt-5.4", "claude-sonnet-4-6",
-    "openrouter/auto"
-};
+const char *PROVIDER_DEFAULT_MODELS[] = {"gemini-3.1-pro-preview", "gpt-5.4", "claude-sonnet-4-6",
+                                         "openrouter/auto"};
 
 static const char *DEFAULT_SYSTEM_PROMPT =
     "You are an agentic AI assistant running through a DNS tunnel (DNS-CLAW). "
@@ -75,7 +71,8 @@ static const char *DEFAULT_SYSTEM_PROMPT =
 static const char *get_system_prompt(void)
 {
     const char *custom = getenv("SYSTEM_PROMPT");
-    if (custom && custom[0]) return custom;
+    if (custom && custom[0])
+        return custom;
     return DEFAULT_SYSTEM_PROMPT;
 }
 
@@ -86,23 +83,31 @@ const tool_def_t TOOL_DEFS[] = {
      "Execute a shell command on the user's machine. Returns stdout+stderr. "
      "Use for: git, builds, tests, installs, system info, any CLI operation.",
      {{"command", "The bash command to execute."}},
-     1, {"command"}, 1},
+     1,
+     {"command"},
+     1},
 
     {"client_read_file",
      "Read a file's contents. Always read before modifying.",
      {{"filepath", "Absolute or relative path to the file."}},
-     1, {"filepath"}, 1},
+     1,
+     {"filepath"},
+     1},
 
     {"client_write_file",
      "Create a new file or completely overwrite an existing one. For surgical "
      "edits to existing files, prefer client_edit_file instead.",
      {{"filepath", "Path to write to."}, {"content", "Full file content."}},
-     2, {"filepath", "content"}, 2},
+     2,
+     {"filepath", "content"},
+     2},
 
     {"client_list_directory",
      "List files and subdirectories with type and size info.",
      {{"path", "Directory path to list. Defaults to current dir."}},
-     1, {NULL}, 0},
+     1,
+     {NULL},
+     0},
 
     {"client_edit_file",
      "Apply a find-and-replace edit to an existing file. The old_string must "
@@ -112,7 +117,9 @@ const tool_def_t TOOL_DEFS[] = {
      {{"filepath", "Path to the file to edit."},
       {"old_string", "Exact text to find (must be unique in the file)."},
       {"new_string", "Replacement text."}},
-     3, {"filepath", "old_string", "new_string"}, 3},
+     3,
+     {"filepath", "old_string", "new_string"},
+     3},
 
     {"client_search_files",
      "Search file contents recursively using a pattern (grep -rn). Returns "
@@ -121,19 +128,23 @@ const tool_def_t TOOL_DEFS[] = {
      {{"pattern", "Search pattern (basic regex)."},
       {"path", "Directory to search in. Defaults to current dir."},
       {"include", "File glob filter, e.g. '*.c' or '*.py'. Optional."}},
-     3, {"pattern"}, 1},
+     3,
+     {"pattern"},
+     1},
 
     {"client_fetch_url",
      "Fetch the contents of a URL via HTTP GET. Returns the response body. "
      "Use for documentation, APIs, or web content.",
      {{"url", "The URL to fetch."}},
-     1, {"url"}, 1},
+     1,
+     {"url"},
+     1},
 };
 
 /* ── Curl helpers ────────────────────────────────────────────────────────── */
 
 struct curl_buf {
-    char  *data;
+    char *data;
     size_t len;
     size_t cap;
 };
@@ -144,10 +155,12 @@ static size_t curl_write_cb(void *ptr, size_t size, size_t nmemb, void *ud)
     struct curl_buf *b = (struct curl_buf *)ud;
     if (b->len + total + 1 > b->cap) {
         size_t needed = b->cap + total + 1;
-        if (needed > SIZE_MAX / 2) return 0;  /* overflow guard */
+        if (needed > SIZE_MAX / 2)
+            return 0; /* overflow guard */
         size_t newcap = needed * 2;
         char *tmp = realloc(b->data, newcap);
-        if (!tmp) return 0;
+        if (!tmp)
+            return 0;
         b->data = tmp;
         b->cap = newcap;
     }
@@ -158,25 +171,27 @@ static size_t curl_write_cb(void *ptr, size_t size, size_t nmemb, void *ud)
 }
 
 /* Generic HTTP POST with retry — returns parsed JSON or NULL */
-static cJSON *llm_http_post(const char *url, struct curl_slist *extra_headers,
-                            const char *body_str)
+static cJSON *llm_http_post(const char *url, struct curl_slist *extra_headers, const char *body_str)
 {
     int max_retries = 3;
     unsigned int backoff_ms = 1000;
 
     for (int attempt = 0; attempt < max_retries; attempt++) {
         if (attempt > 0) {
-            log_warn("http", "Retry %d/%d after %ums...",
-                     attempt, max_retries - 1, backoff_ms);
+            log_warn("http", "Retry %d/%d after %ums...", attempt, max_retries - 1, backoff_ms);
             usleep(backoff_ms * 1000);
             backoff_ms *= 2;
         }
 
         CURL *curl = curl_easy_init();
-        if (!curl) return NULL;
+        if (!curl)
+            return NULL;
 
-        struct curl_buf resp = { .data = malloc(4096), .len = 0, .cap = 4096 };
-        if (!resp.data) { curl_easy_cleanup(curl); return NULL; }
+        struct curl_buf resp = {.data = malloc(4096), .len = 0, .cap = 4096};
+        if (!resp.data) {
+            curl_easy_cleanup(curl);
+            return NULL;
+        }
 
         struct curl_slist *headers = NULL;
         headers = curl_slist_append(headers, "Content-Type: application/json");
@@ -201,7 +216,7 @@ static cJSON *llm_http_post(const char *url, struct curl_slist *extra_headers,
         if (res != CURLE_OK) {
             log_err("http", "curl error: %s", curl_easy_strerror(res));
             free(resp.data);
-            continue;  /* retry on network errors */
+            continue; /* retry on network errors */
         }
 
         /* Retry on 429 (rate limit) and 5xx (server errors) */
@@ -214,7 +229,7 @@ static cJSON *llm_http_post(const char *url, struct curl_slist *extra_headers,
         if (http_code != 200) {
             log_err("http", "HTTP %ld: %.500s", http_code, resp.data);
             free(resp.data);
-            return NULL;  /* non-retryable error */
+            return NULL; /* non-retryable error */
         }
 
         cJSON *json = cJSON_Parse(resp.data);
@@ -363,9 +378,9 @@ static const char *extract_openai_tool_id(cJSON *history)
         if (tc) {
             cJSON *tc0 = cJSON_GetArrayItem(tc, 0);
             if (tc0) {
-                const char *id = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(tc0, "id"));
-                if (id) return id;
+                const char *id = cJSON_GetStringValue(cJSON_GetObjectItem(tc0, "id"));
+                if (id)
+                    return id;
             }
         }
     }
@@ -381,13 +396,13 @@ static const char *extract_anthropic_tool_id(cJSON *history)
         cJSON *ct = cJSON_GetObjectItem(entry, "content");
         if (cJSON_IsArray(ct)) {
             cJSON *block;
-            cJSON_ArrayForEach(block, ct) {
-                const char *tp = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(block, "type"));
+            cJSON_ArrayForEach(block, ct)
+            {
+                const char *tp = cJSON_GetStringValue(cJSON_GetObjectItem(block, "type"));
                 if (tp && strcmp(tp, "tool_use") == 0) {
-                    const char *id = cJSON_GetStringValue(
-                        cJSON_GetObjectItem(block, "id"));
-                    if (id) return id;
+                    const char *id = cJSON_GetStringValue(cJSON_GetObjectItem(block, "id"));
+                    if (id)
+                        return id;
                 }
             }
         }
@@ -395,8 +410,7 @@ static const char *extract_anthropic_tool_id(cJSON *history)
     return "toolu_0";
 }
 
-void history_add_tool_response(cJSON *history, const char *tool_name,
-                               const char *content)
+void history_add_tool_response(cJSON *history, const char *tool_name, const char *content)
 {
     switch (g_config.provider) {
     case PROVIDER_GEMINI: {
@@ -465,8 +479,9 @@ static cJSON *gemini_generate_content(cJSON *history)
 
     char url[1024];
     snprintf(url, sizeof(url),
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        "%s:generateContent", g_config.model);
+             "https://generativelanguage.googleapis.com/v1beta/models/"
+             "%s:generateContent",
+             g_config.model);
 
     char key_hdr[600];
     snprintf(key_hdr, sizeof(key_hdr), "x-goog-api-key: %s", g_config.api_key);
@@ -491,7 +506,8 @@ static cJSON *openai_generate_content(cJSON *history)
     cJSON_AddItemToArray(messages, sys_msg);
 
     cJSON *h;
-    cJSON_ArrayForEach(h, history) {
+    cJSON_ArrayForEach(h, history)
+    {
         cJSON_AddItemToArray(messages, cJSON_Duplicate(h, 1));
     }
     cJSON_AddItemToObject(body, "messages", messages);
@@ -505,8 +521,7 @@ static cJSON *openai_generate_content(cJSON *history)
     struct curl_slist *hdrs = NULL;
     hdrs = curl_slist_append(hdrs, auth);
 
-    cJSON *result = llm_http_post(
-        "https://api.openai.com/v1/chat/completions", hdrs, body_str);
+    cJSON *result = llm_http_post("https://api.openai.com/v1/chat/completions", hdrs, body_str);
     curl_slist_free_all(hdrs);
     free(body_str);
     return result;
@@ -521,7 +536,8 @@ static cJSON *anthropic_generate_content(cJSON *history)
 
     cJSON *messages = cJSON_CreateArray();
     cJSON *h;
-    cJSON_ArrayForEach(h, history) {
+    cJSON_ArrayForEach(h, history)
+    {
         cJSON_AddItemToArray(messages, cJSON_Duplicate(h, 1));
     }
     cJSON_AddItemToObject(body, "messages", messages);
@@ -536,8 +552,7 @@ static cJSON *anthropic_generate_content(cJSON *history)
     hdrs = curl_slist_append(hdrs, key_hdr);
     hdrs = curl_slist_append(hdrs, "anthropic-version: 2023-06-01");
 
-    cJSON *result = llm_http_post(
-        "https://api.anthropic.com/v1/messages", hdrs, body_str);
+    cJSON *result = llm_http_post("https://api.anthropic.com/v1/messages", hdrs, body_str);
     curl_slist_free_all(hdrs);
     free(body_str);
     return result;
@@ -555,7 +570,8 @@ static cJSON *openrouter_generate_content(cJSON *history)
     cJSON_AddItemToArray(messages, sys_msg);
 
     cJSON *h;
-    cJSON_ArrayForEach(h, history) {
+    cJSON_ArrayForEach(h, history)
+    {
         cJSON_AddItemToArray(messages, cJSON_Duplicate(h, 1));
     }
     cJSON_AddItemToObject(body, "messages", messages);
@@ -568,12 +584,10 @@ static cJSON *openrouter_generate_content(cJSON *history)
     snprintf(auth, sizeof(auth), "Authorization: Bearer %s", g_config.api_key);
     struct curl_slist *hdrs = NULL;
     hdrs = curl_slist_append(hdrs, auth);
-    hdrs = curl_slist_append(hdrs,
-        "HTTP-Referer: https://github.com/0Mattias/DNS-CLAW");
+    hdrs = curl_slist_append(hdrs, "HTTP-Referer: https://github.com/0Mattias/DNS-CLAW");
     hdrs = curl_slist_append(hdrs, "X-Title: DNS-CLAW");
 
-    cJSON *result = llm_http_post(
-        "https://openrouter.ai/api/v1/chat/completions", hdrs, body_str);
+    cJSON *result = llm_http_post("https://openrouter.ai/api/v1/chat/completions", hdrs, body_str);
     curl_slist_free_all(hdrs);
     free(body_str);
     return result;
@@ -584,10 +598,14 @@ static cJSON *openrouter_generate_content(cJSON *history)
 cJSON *llm_generate_content(cJSON *history)
 {
     switch (g_config.provider) {
-    case PROVIDER_GEMINI:     return gemini_generate_content(history);
-    case PROVIDER_OPENAI:     return openai_generate_content(history);
-    case PROVIDER_ANTHROPIC:  return anthropic_generate_content(history);
-    case PROVIDER_OPENROUTER: return openrouter_generate_content(history);
+    case PROVIDER_GEMINI:
+        return gemini_generate_content(history);
+    case PROVIDER_OPENAI:
+        return openai_generate_content(history);
+    case PROVIDER_ANTHROPIC:
+        return anthropic_generate_content(history);
+    case PROVIDER_OPENROUTER:
+        return openrouter_generate_content(history);
     }
     return NULL;
 }
@@ -598,7 +616,8 @@ int llm_parse_response(cJSON *api_resp, cJSON **out_result, cJSON **out_history)
 {
     *out_result = NULL;
     *out_history = NULL;
-    if (!api_resp) return -1;
+    if (!api_resp)
+        return -1;
 
     cJSON *result = cJSON_CreateObject();
 
@@ -612,47 +631,48 @@ int llm_parse_response(cJSON *api_resp, cJSON **out_result, cJSON **out_history)
         int is_tool = 0;
         if (parts) {
             cJSON *cp;
-            cJSON_ArrayForEach(cp, parts) {
+            cJSON_ArrayForEach(cp, parts)
+            {
                 cJSON *fc = cJSON_GetObjectItem(cp, "functionCall");
                 if (fc) {
                     is_tool = 1;
                     cJSON_AddStringToObject(result, "type", "tool_call");
-                    const char *fn = cJSON_GetStringValue(
-                        cJSON_GetObjectItem(fc, "name"));
-                    if (fn) cJSON_AddStringToObject(result, "tool_name", fn);
+                    const char *fn = cJSON_GetStringValue(cJSON_GetObjectItem(fc, "name"));
+                    if (fn)
+                        cJSON_AddStringToObject(result, "tool_name", fn);
                     cJSON *args = cJSON_GetObjectItem(fc, "args");
                     if (args)
-                        cJSON_AddItemToObject(result, "tool_args",
-                                              cJSON_Duplicate(args, 1));
+                        cJSON_AddItemToObject(result, "tool_args", cJSON_Duplicate(args, 1));
                     break;
                 }
             }
         }
         if (!is_tool) {
             cJSON_AddStringToObject(result, "type", "text");
-            #define TEXT_BUF_SIZE 65536
+#define TEXT_BUF_SIZE 65536
             char *text_buf = calloc(TEXT_BUF_SIZE, 1);
             if (text_buf && parts) {
                 size_t cur = 0;
                 cJSON *cp;
-                cJSON_ArrayForEach(cp, parts) {
-                    const char *t = cJSON_GetStringValue(
-                        cJSON_GetObjectItem(cp, "text"));
+                cJSON_ArrayForEach(cp, parts)
+                {
+                    const char *t = cJSON_GetStringValue(cJSON_GetObjectItem(cp, "text"));
                     if (t) {
-                        int w = snprintf(text_buf + cur, TEXT_BUF_SIZE - cur,
-                                         "%s", t);
-                        if (w > 0) cur += (size_t)w;
-                        if (cur >= TEXT_BUF_SIZE - 1) break;
+                        int w = snprintf(text_buf + cur, TEXT_BUF_SIZE - cur, "%s", t);
+                        if (w > 0)
+                            cur += (size_t)w;
+                        if (cur >= TEXT_BUF_SIZE - 1)
+                            break;
                     }
                 }
             }
-            cJSON_AddStringToObject(result, "content",
-                                    text_buf ? text_buf : "");
+            cJSON_AddStringToObject(result, "content", text_buf ? text_buf : "");
             free(text_buf);
-            #undef TEXT_BUF_SIZE
+#undef TEXT_BUF_SIZE
         }
         /* Preserve full content for Gemini history (thoughtSignature etc.) */
-        if (content) *out_history = cJSON_Duplicate(content, 1);
+        if (content)
+            *out_history = cJSON_Duplicate(content, 1);
         break;
     }
 
@@ -671,11 +691,11 @@ int llm_parse_response(cJSON *api_resp, cJSON **out_result, cJSON **out_history)
                 if (fn_obj) {
                     is_tool = 1;
                     cJSON_AddStringToObject(result, "type", "tool_call");
-                    const char *fn = cJSON_GetStringValue(
-                        cJSON_GetObjectItem(fn_obj, "name"));
-                    if (fn) cJSON_AddStringToObject(result, "tool_name", fn);
-                    const char *args_str = cJSON_GetStringValue(
-                        cJSON_GetObjectItem(fn_obj, "arguments"));
+                    const char *fn = cJSON_GetStringValue(cJSON_GetObjectItem(fn_obj, "name"));
+                    if (fn)
+                        cJSON_AddStringToObject(result, "tool_name", fn);
+                    const char *args_str =
+                        cJSON_GetStringValue(cJSON_GetObjectItem(fn_obj, "arguments"));
                     if (args_str) {
                         cJSON *args = cJSON_Parse(args_str);
                         if (args)
@@ -686,11 +706,11 @@ int llm_parse_response(cJSON *api_resp, cJSON **out_result, cJSON **out_history)
         }
         if (!is_tool && msg) {
             cJSON_AddStringToObject(result, "type", "text");
-            const char *ct = cJSON_GetStringValue(
-                cJSON_GetObjectItem(msg, "content"));
+            const char *ct = cJSON_GetStringValue(cJSON_GetObjectItem(msg, "content"));
             cJSON_AddStringToObject(result, "content", ct ? ct : "");
         }
-        if (msg) *out_history = cJSON_Duplicate(msg, 1);
+        if (msg)
+            *out_history = cJSON_Duplicate(msg, 1);
         break;
     }
 
@@ -699,19 +719,18 @@ int llm_parse_response(cJSON *api_resp, cJSON **out_result, cJSON **out_history)
         int is_tool = 0;
         if (content_arr) {
             cJSON *block;
-            cJSON_ArrayForEach(block, content_arr) {
-                const char *tp = cJSON_GetStringValue(
-                    cJSON_GetObjectItem(block, "type"));
+            cJSON_ArrayForEach(block, content_arr)
+            {
+                const char *tp = cJSON_GetStringValue(cJSON_GetObjectItem(block, "type"));
                 if (tp && strcmp(tp, "tool_use") == 0) {
                     is_tool = 1;
                     cJSON_AddStringToObject(result, "type", "tool_call");
-                    const char *fn = cJSON_GetStringValue(
-                        cJSON_GetObjectItem(block, "name"));
-                    if (fn) cJSON_AddStringToObject(result, "tool_name", fn);
+                    const char *fn = cJSON_GetStringValue(cJSON_GetObjectItem(block, "name"));
+                    if (fn)
+                        cJSON_AddStringToObject(result, "tool_name", fn);
                     cJSON *input = cJSON_GetObjectItem(block, "input");
                     if (input)
-                        cJSON_AddItemToObject(result, "tool_args",
-                                              cJSON_Duplicate(input, 1));
+                        cJSON_AddItemToObject(result, "tool_args", cJSON_Duplicate(input, 1));
                     break;
                 }
             }
@@ -722,22 +741,20 @@ int llm_parse_response(cJSON *api_resp, cJSON **out_result, cJSON **out_history)
             size_t cur = 0;
             if (text_buf && content_arr) {
                 cJSON *block;
-                cJSON_ArrayForEach(block, content_arr) {
-                    const char *tp = cJSON_GetStringValue(
-                        cJSON_GetObjectItem(block, "type"));
+                cJSON_ArrayForEach(block, content_arr)
+                {
+                    const char *tp = cJSON_GetStringValue(cJSON_GetObjectItem(block, "type"));
                     if (tp && strcmp(tp, "text") == 0) {
-                        const char *t = cJSON_GetStringValue(
-                            cJSON_GetObjectItem(block, "text"));
+                        const char *t = cJSON_GetStringValue(cJSON_GetObjectItem(block, "text"));
                         if (t) {
-                            int w = snprintf(text_buf + cur, 65536 - cur,
-                                             "%s", t);
-                            if (w > 0) cur += (size_t)w;
+                            int w = snprintf(text_buf + cur, 65536 - cur, "%s", t);
+                            if (w > 0)
+                                cur += (size_t)w;
                         }
                     }
                 }
             }
-            cJSON_AddStringToObject(result, "content",
-                                    text_buf ? text_buf : "");
+            cJSON_AddStringToObject(result, "content", text_buf ? text_buf : "");
             free(text_buf);
         }
         /* Anthropic history: {role:"assistant", content:[...]} */
@@ -745,8 +762,7 @@ int llm_parse_response(cJSON *api_resp, cJSON **out_result, cJSON **out_history)
             cJSON *he = cJSON_CreateObject();
             cJSON_AddStringToObject(he, "role", "assistant");
             if (content_arr)
-                cJSON_AddItemToObject(he, "content",
-                                      cJSON_Duplicate(content_arr, 1));
+                cJSON_AddItemToObject(he, "content", cJSON_Duplicate(content_arr, 1));
             *out_history = he;
         }
         break;
@@ -760,8 +776,8 @@ int llm_parse_response(cJSON *api_resp, cJSON **out_result, cJSON **out_history)
 
 /* ── High-level request processor ────────────────────────────────────────── */
 
-cJSON *llm_process_request(session_t *sess, const char *type,
-                           const char *content, const char *tool_name)
+cJSON *llm_process_request(session_t *sess, const char *type, const char *content,
+                           const char *tool_name)
 {
     /* 1. Add user/tool entry to history */
     pthread_mutex_lock(&g_lock);
@@ -819,7 +835,8 @@ void *process_llm_thread(void *arg)
 
     int max_seq = -1;
     for (int i = 0; i < pp->chunk_count; i++) {
-        if (pp->chunks[i].seq > max_seq) max_seq = pp->chunks[i].seq;
+        if (pp->chunks[i].seq > max_seq)
+            max_seq = pp->chunks[i].seq;
     }
 
     char b32_combined[UPLOAD_B32_MAX];
@@ -849,11 +866,10 @@ void *process_llm_thread(void *arg)
 
     /* Base32 decode */
     uint8_t payload_bytes[65536];
-    int decoded_len = base32_decode(b32_combined, payload_bytes,
-                                    sizeof(payload_bytes));
+    int decoded_len = base32_decode(b32_combined, payload_bytes, sizeof(payload_bytes));
     if (decoded_len < 0 || (size_t)decoded_len >= sizeof(payload_bytes)) {
-        fprintf(stderr, "[llm] base32 decode failed (input len=%zu, decoded=%d)\n",
-                b32_pos, decoded_len);
+        fprintf(stderr, "[llm] base32 decode failed (input len=%zu, decoded=%d)\n", b32_pos,
+                decoded_len);
         pthread_mutex_lock(&g_lock);
         sess->responses[msg_id].failed = 1;
         pthread_mutex_unlock(&g_lock);
@@ -865,8 +881,7 @@ void *process_llm_thread(void *arg)
     if (tunnel_crypto_enabled() && decoded_len > (int)CRYPTO_OVERHEAD) {
         uint8_t decrypted[65536];
         size_t dec_len = 0;
-        if (tunnel_decrypt(payload_bytes, (size_t)decoded_len,
-                           decrypted, &dec_len) == 0) {
+        if (tunnel_decrypt(payload_bytes, (size_t)decoded_len, decrypted, &dec_len) == 0) {
             memcpy(payload_bytes, decrypted, dec_len);
             payload_bytes[dec_len] = '\0';
             decoded_len = (int)dec_len;
@@ -882,8 +897,8 @@ void *process_llm_thread(void *arg)
     /* Parse JSON payload */
     cJSON *payload = cJSON_Parse((char *)payload_bytes);
     if (!payload) {
-        fprintf(stderr, "[llm] JSON parse failed (len=%d): %.128s\n",
-                decoded_len, (char *)payload_bytes);
+        fprintf(stderr, "[llm] JSON parse failed (len=%d): %.128s\n", decoded_len,
+                (char *)payload_bytes);
         pthread_mutex_lock(&g_lock);
         sess->responses[msg_id].failed = 1;
         pthread_mutex_unlock(&g_lock);
@@ -903,8 +918,7 @@ void *process_llm_thread(void *arg)
         goto done;
     }
 
-    fprintf(stderr, "[llm] Processing sid=%s mid=%d type=%s\n",
-            sess->id, msg_id, type);
+    fprintf(stderr, "[llm] Processing sid=%s mid=%d type=%s\n", sess->id, msg_id, type);
 
     /* 2. Process through provider-dispatched LLM layer */
     cJSON *result_json = llm_process_request(sess, type, content, tool_name);
@@ -931,8 +945,7 @@ void *process_llm_thread(void *arg)
     if (tunnel_crypto_enabled()) {
         encrypted = malloc(result_len + CRYPTO_OVERHEAD);
         if (encrypted &&
-            tunnel_encrypt((uint8_t *)result_str, result_len,
-                           encrypted, &encode_len) == 0) {
+            tunnel_encrypt((uint8_t *)result_str, result_len, encrypted, &encode_len) == 0) {
             encode_data = encrypted;
         } else {
             log_err("llm", "Response encryption failed");
@@ -967,10 +980,10 @@ void *process_llm_thread(void *arg)
     msg_response_t *mr = &sess->responses[msg_id];
 
     int alloc_failed = 0;
-    for (size_t i = 0; i < b64_total && nchunks < MAX_RESP_CHUNKS;
-         i += CHUNK_SIZE) {
+    for (size_t i = 0; i < b64_total && nchunks < MAX_RESP_CHUNKS; i += CHUNK_SIZE) {
         size_t clen = b64_total - i;
-        if (clen > CHUNK_SIZE) clen = CHUNK_SIZE;
+        if (clen > CHUNK_SIZE)
+            clen = CHUNK_SIZE;
         mr->chunks[nchunks] = malloc(clen + 1);
         if (!mr->chunks[nchunks]) {
             log_err("llm", "Out of memory allocating response chunk");
@@ -996,8 +1009,7 @@ void *process_llm_thread(void *arg)
 
     free(b64_buf);
 
-    fprintf(stderr, "[llm] Response ready sid=%s mid=%d chunks=%d\n",
-            sess->id, msg_id, nchunks);
+    fprintf(stderr, "[llm] Response ready sid=%s mid=%d chunks=%d\n", sess->id, msg_id, nchunks);
 
 done:
     pthread_mutex_lock(&g_lock);

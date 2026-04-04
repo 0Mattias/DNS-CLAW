@@ -32,8 +32,7 @@ static void test_encrypt_decrypt_roundtrip(void)
     uint8_t ciphertext[256];
     size_t ct_len = 0;
 
-    assert(tunnel_encrypt((const uint8_t *)plaintext, pt_len,
-                          ciphertext, &ct_len) == 0);
+    assert(tunnel_encrypt((const uint8_t *)plaintext, pt_len, ciphertext, &ct_len) == 0);
     assert(ct_len == pt_len + CRYPTO_OVERHEAD);
 
     /* Verify magic header */
@@ -170,7 +169,8 @@ static void test_large_payload_roundtrip(void)
     tunnel_crypto_init("large-key");
     /* 4KB payload */
     uint8_t data[4096];
-    for (int i = 0; i < (int)sizeof(data); i++) data[i] = (uint8_t)(i & 0xFF);
+    for (int i = 0; i < (int)sizeof(data); i++)
+        data[i] = (uint8_t)(i & 0xFF);
 
     uint8_t ct[4096 + CRYPTO_OVERHEAD + 16];
     size_t ct_len = 0;

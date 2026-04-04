@@ -14,12 +14,12 @@
 #include "protocol.h"
 #include "server/session.h"
 #include "server/log.h"
-#include "server/transport.h"  /* g_running */
+#include "server/transport.h" /* g_running */
 
 /* ── Global session state ─────────────────────────────────────────────────── */
 
-session_t        g_sessions[MAX_SESSIONS];
-pthread_mutex_t  g_lock = PTHREAD_MUTEX_INITIALIZER;
+session_t g_sessions[MAX_SESSIONS];
+pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* ── Functions ────────────────────────────────────────────────────────────── */
 
@@ -53,11 +53,9 @@ void *session_reaper_thread(void *arg)
         time_t now = time(NULL);
         pthread_mutex_lock(&g_lock);
         for (int i = 0; i < MAX_SESSIONS; i++) {
-            if (g_sessions[i].active &&
-                g_sessions[i].busy == 0 &&
+            if (g_sessions[i].active && g_sessions[i].busy == 0 &&
                 difftime(now, g_sessions[i].last_active) > SESSION_TIMEOUT_SEC) {
-                log_warn("reaper", "Expiring session %s (idle %ds)",
-                         g_sessions[i].id,
+                log_warn("reaper", "Expiring session %s (idle %ds)", g_sessions[i].id,
                          (int)difftime(now, g_sessions[i].last_active));
                 session_destroy(&g_sessions[i]);
             }

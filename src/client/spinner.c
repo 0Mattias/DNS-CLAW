@@ -9,11 +9,9 @@
 
 #include "client/render.h"
 #include "client/spinner.h"
-#include "client/protocol.h"  /* g_interrupted */
+#include "client/protocol.h" /* g_interrupted */
 
-static const char *SPINNER_FRAMES[] = {
-    "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
-};
+static const char *SPINNER_FRAMES[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
 #define SPINNER_FRAME_COUNT 10
 
 static void *spinner_run(void *arg)

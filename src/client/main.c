@@ -47,18 +47,26 @@ static void sigint_handler(int sig)
 }
 
 #ifdef HAVE_LIBEDIT
-static const char *el_prompt_null(EditLine *e) { (void)e; return ""; }
+static const char *el_prompt_null(EditLine *e)
+{
+    (void)e;
+    return "";
+}
 #endif
 
 /* ── Conversation export ─────────────────────────────────────────────────── */
 
 #define MAX_EXPORT_ENTRIES 4096
-static struct { const char *role; char *text; } g_export_log[MAX_EXPORT_ENTRIES];
+static struct {
+    const char *role;
+    char *text;
+} g_export_log[MAX_EXPORT_ENTRIES];
 static int g_export_count = 0;
 
 void export_log_add(const char *role, const char *text)
 {
-    if (g_export_count >= MAX_EXPORT_ENTRIES) return;
+    if (g_export_count >= MAX_EXPORT_ENTRIES)
+        return;
     g_export_log[g_export_count].role = role;
     g_export_log[g_export_count].text = strdup(text);
     g_export_count++;
@@ -73,14 +81,14 @@ static int export_conversation(const char *path)
     } else {
         time_t now = time(NULL);
         struct tm *tm = localtime(&now);
-        snprintf(filepath, sizeof(filepath),
-                 "dnsclaw-chat-%04d%02d%02d-%02d%02d%02d.md",
-                 tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
-                 tm->tm_hour, tm->tm_min, tm->tm_sec);
+        snprintf(filepath, sizeof(filepath), "dnsclaw-chat-%04d%02d%02d-%02d%02d%02d.md",
+                 tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min,
+                 tm->tm_sec);
     }
 
     FILE *fp = fopen(filepath, "w");
-    if (!fp) return -1;
+    if (!fp)
+        return -1;
 
     fprintf(fp, "# DNS-CLAW Conversation Export\n\n");
     fprintf(fp, "**Session:** `%s`  \n", g_session_id);
@@ -155,13 +163,11 @@ int main(int argc, char **argv)
     char *oneshot_msg = NULL;
 
     /* Parse CLI args */
-    static struct option long_opts[] = {
-        {"help",           no_argument,       NULL, 'h'},
-        {"version",        no_argument,       NULL, 'v'},
-        {"no-color",       no_argument,       NULL, 'C'},
-        {"no-typewriter",  no_argument,       NULL, 'T'},
-        {0, 0, 0, 0}
-    };
+    static struct option long_opts[] = {{"help", no_argument, NULL, 'h'},
+                                        {"version", no_argument, NULL, 'v'},
+                                        {"no-color", no_argument, NULL, 'C'},
+                                        {"no-typewriter", no_argument, NULL, 'T'},
+                                        {0, 0, 0, 0}};
 
     int opt;
     while ((opt = getopt_long(argc, argv, "hvm:s:p:", long_opts, NULL)) != -1) {
@@ -203,25 +209,27 @@ int main(int argc, char **argv)
         if ((env = getenv("DNS_SERVER_ADDR")) && env[0]) {
             strncpy(g_cfg.server_addr, env, sizeof(g_cfg.server_addr) - 1);
         } else if (g_cfg.use_doh) {
-            snprintf(g_cfg.server_addr, sizeof(g_cfg.server_addr),
-                     "https://127.0.0.1/dns-query");
+            snprintf(g_cfg.server_addr, sizeof(g_cfg.server_addr), "https://127.0.0.1/dns-query");
         } else {
-            snprintf(g_cfg.server_addr, sizeof(g_cfg.server_addr),
-                     "127.0.0.1");
+            snprintf(g_cfg.server_addr, sizeof(g_cfg.server_addr), "127.0.0.1");
         }
     }
 
     if (!g_cfg.port) {
-        if (g_cfg.use_dot)      g_cfg.port = 853;
-        else if (g_cfg.use_doh) g_cfg.port = 443;
-        else                    g_cfg.port = 53;
+        if (g_cfg.use_dot)
+            g_cfg.port = 853;
+        else if (g_cfg.use_doh)
+            g_cfg.port = 443;
+        else
+            g_cfg.port = 53;
 
         if ((env = getenv("SERVER_PORT")) && env[0])
             g_cfg.port = (int)strtol(env, NULL, 10);
     }
 
     /* Non-interactive: disable typewriter */
-    if (!g_is_tty) g_cfg.typewriter = 0;
+    if (!g_is_tty)
+        g_cfg.typewriter = 0;
 
     /* Initialize payload encryption from PSK */
     const char *psk = getenv("TUNNEL_PSK");
@@ -256,9 +264,9 @@ int main(int argc, char **argv)
         char piped_input[65536] = {0};
         size_t total = 0;
         while (total < sizeof(piped_input) - 1) {
-            size_t n = fread(piped_input + total, 1,
-                             sizeof(piped_input) - 1 - total, stdin);
-            if (n == 0) break;
+            size_t n = fread(piped_input + total, 1, sizeof(piped_input) - 1 - total, stdin);
+            if (n == 0)
+                break;
             total += n;
         }
         piped_input[total] = '\0';
@@ -285,8 +293,7 @@ int main(int argc, char **argv)
     /* Load history from ~/.config/dnsclaw/history */
     char hist_path[512] = {0};
     if (home) {
-        snprintf(hist_path, sizeof(hist_path),
-                 "%s/.config/dnsclaw/history", home);
+        snprintf(hist_path, sizeof(hist_path), "%s/.config/dnsclaw/history", home);
         history(hist, &hev, H_LOAD, hist_path);
     }
 
@@ -324,11 +331,15 @@ int main(int argc, char **argv)
             }
             break;
         }
-        if (g_interrupted) { g_interrupted = 0; continue; }
+        if (g_interrupted) {
+            g_interrupted = 0;
+            continue;
+        }
 
         /* Copy to input buffer */
         size_t ilen = (size_t)line_len;
-        if (ilen >= sizeof(input)) ilen = sizeof(input) - 1;
+        if (ilen >= sizeof(input))
+            ilen = sizeof(input) - 1;
         memcpy(input, line, ilen);
         input[ilen] = '\0';
 #else
@@ -344,20 +355,26 @@ int main(int argc, char **argv)
             }
             break;
         }
-        if (g_interrupted) { g_interrupted = 0; continue; }
+        if (g_interrupted) {
+            g_interrupted = 0;
+            continue;
+        }
         size_t ilen = strlen(input);
 #endif
 
         /* Trim */
-        while (ilen > 0 && (input[ilen-1] == '\n' || input[ilen-1] == '\r'))
+        while (ilen > 0 && (input[ilen - 1] == '\n' || input[ilen - 1] == '\r'))
             input[--ilen] = '\0';
         char *text = input;
-        while (*text == ' ' || *text == '\t') text++;
-        if (text[0] == '\0') continue;
+        while (*text == ' ' || *text == '\t')
+            text++;
+        if (text[0] == '\0')
+            continue;
 
 #ifdef HAVE_LIBEDIT
         /* Add to history (skip empty and duplicate) */
-        if (text[0]) history(hist, &hev, H_ENTER, text);
+        if (text[0])
+            history(hist, &hev, H_ENTER, text);
 #endif
 
         /* ── Commands ──────────────────────────────────────── */
@@ -388,18 +405,18 @@ int main(int argc, char **argv)
             printf("  ──────────────────────────────────────────\n" ANSI_RESET);
             printf("  Session ID:  %s\n", g_session_id);
             printf("  Turn:        %d\n", g_turn);
-            printf("  Transport:   %s\n",
-                   g_cfg.use_doh ? "DoH (HTTPS)" :
-                   g_cfg.use_dot ? "DoT (TLS)" : "UDP");
-            printf("  Encryption:  %s\n",
-                   tunnel_crypto_enabled() ? "AES-256-GCM (PSK)" : "none");
+            printf("  Transport:   %s\n", g_cfg.use_doh   ? "DoH (HTTPS)"
+                                          : g_cfg.use_dot ? "DoT (TLS)"
+                                                          : "UDP");
+            printf("  Encryption:  %s\n", tunnel_crypto_enabled() ? "AES-256-GCM (PSK)" : "none");
             printf("  Server:      %s:%d\n", g_cfg.server_addr, g_cfg.port);
             printf("\n");
             continue;
         }
         if (strncmp(text, "/export", 7) == 0) {
             const char *path = text + 7;
-            while (*path == ' ') path++;
+            while (*path == ' ')
+                path++;
             if (g_export_count == 0) {
                 set_fg_rgb(255, 200, 0);
                 printf("\n  No messages to export.\n" ANSI_RESET);
@@ -411,17 +428,19 @@ int main(int argc, char **argv)
         }
         if (strncmp(text, "/compact", 8) == 0) {
             const char *focus = text + 8;
-            while (*focus == ' ') focus++;
+            while (*focus == ' ')
+                focus++;
 
             char compact_msg[4096];
             if (*focus) {
                 snprintf(compact_msg, sizeof(compact_msg),
-                    "SYSTEM: Summarize our conversation, keeping all important "
-                    "context. Acknowledge compaction. Focus on: %s", focus);
+                         "SYSTEM: Summarize our conversation, keeping all important "
+                         "context. Acknowledge compaction. Focus on: %s",
+                         focus);
             } else {
                 snprintf(compact_msg, sizeof(compact_msg),
-                    "SYSTEM: Summarize our conversation, keeping all important "
-                    "facts and context, then acknowledge compaction.");
+                         "SYSTEM: Summarize our conversation, keeping all important "
+                         "facts and context, then acknowledge compaction.");
             }
             set_fg_rgb(THEME_R1);
             printf("\n  [Compacting context...]\n" ANSI_RESET);

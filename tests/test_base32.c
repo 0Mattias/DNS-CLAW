@@ -77,9 +77,9 @@ static void test_invalid_chars_rejected(void)
 {
     uint8_t buf[64];
     /* Characters outside A-Z 2-7 must be rejected */
-    assert(base32_decode("0000", buf, sizeof(buf)) == -1);   /* '0' invalid */
-    assert(base32_decode("1111", buf, sizeof(buf)) == -1);   /* '1' invalid */
-    assert(base32_decode("8888", buf, sizeof(buf)) == -1);   /* '8' invalid */
+    assert(base32_decode("0000", buf, sizeof(buf)) == -1); /* '0' invalid */
+    assert(base32_decode("1111", buf, sizeof(buf)) == -1); /* '1' invalid */
+    assert(base32_decode("8888", buf, sizeof(buf)) == -1); /* '8' invalid */
     assert(base32_decode("!@#$", buf, sizeof(buf)) == -1);
     assert(base32_decode("AB\x01D", buf, sizeof(buf)) == -1);
     PASS("invalid_chars_rejected");
@@ -97,7 +97,8 @@ static void test_binary_roundtrip(void)
 {
     /* All byte values 0x00-0xFF */
     uint8_t data[256];
-    for (int i = 0; i < 256; i++) data[i] = (uint8_t)i;
+    for (int i = 0; i < 256; i++)
+        data[i] = (uint8_t)i;
 
     char enc[512];
     assert(base32_encode(data, sizeof(data), enc, sizeof(enc)) > 0);

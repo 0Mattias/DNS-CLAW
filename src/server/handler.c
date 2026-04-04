@@ -32,7 +32,8 @@ static void generate_id(char *out, size_t len)
     uint8_t randbuf[16];
     arc4random_buf(randbuf, sizeof(randbuf));
     size_t n = (len - 1) / 2;
-    if (n > 16) n = 16;
+    if (n > 16)
+        n = 16;
     size_t pos = 0;
     for (size_t i = 0; i < n && pos + 1 < len; i++) {
         out[pos++] = hex[(randbuf[i] >> 4) & 0x0F];
@@ -43,7 +44,8 @@ static void generate_id(char *out, size_t len)
 
 static int safe_atoi(const char *s)
 {
-    if (!s || !*s) return -1;
+    if (!s || !*s)
+        return -1;
     char *end;
     errno = 0;
     long val = strtol(s, &end, 10);
@@ -54,8 +56,7 @@ static int safe_atoi(const char *s)
 
 /* ── DNS Query Handler ────────────────────────────────────────────────────── */
 
-int handle_dns_query(const uint8_t *query, size_t query_len,
-                     uint8_t *resp_buf, size_t resp_buf_len)
+int handle_dns_query(const uint8_t *query, size_t query_len, uint8_t *resp_buf, size_t resp_buf_len)
 {
     uint16_t qid;
     char qname[512];
@@ -69,8 +70,7 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
 
     /* Must end with llm.local. */
     if (!strstr(qname, "llm.local.")) {
-        return dns_build_response(qid, qname, DNS_RCODE_NXDOMAIN, NULL,
-                                  resp_buf, resp_buf_len);
+        return dns_build_response(qid, qname, DNS_RCODE_NXDOMAIN, NULL, resp_buf, resp_buf_len);
     }
 
     /* Split into labels (thread-safe) */
@@ -99,8 +99,7 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
         }
         if (!sess) {
             pthread_mutex_unlock(&g_lock);
-            return dns_build_response(qid, qname, DNS_RCODE_SERVFAIL, NULL,
-                                      resp_buf, resp_buf_len);
+            return dns_build_response(qid, qname, DNS_RCODE_SERVFAIL, NULL, resp_buf, resp_buf_len);
         }
 
         memset(sess, 0, sizeof(*sess));
@@ -112,8 +111,7 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
         pthread_mutex_unlock(&g_lock);
 
         log_ok("init", "New session: %s", sess->id);
-        return dns_build_response(qid, qname, DNS_RCODE_OK, sess->id,
-                                  resp_buf, resp_buf_len);
+        return dns_build_response(qid, qname, DNS_RCODE_OK, sess->id, resp_buf, resp_buf_len);
     }
 
     /* ── <chunk>.<seq>.up.<mid>.<sid>.llm.local. ──────────────────── */
@@ -124,13 +122,11 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
         const char *sid = parts[4];
 
         if (seq < 0) {
-            return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL,
-                                      resp_buf, resp_buf_len);
+            return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL, resp_buf, resp_buf_len);
         }
 
         if (mid < 0 || mid >= MAX_MSG_IDS) {
-            return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL,
-                                      resp_buf, resp_buf_len);
+            return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL, resp_buf, resp_buf_len);
         }
 
         pthread_mutex_lock(&g_lock);
@@ -156,8 +152,7 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
         }
         pthread_mutex_unlock(&g_lock);
 
-        return dns_build_response(qid, qname, DNS_RCODE_OK, reply,
-                                  resp_buf, resp_buf_len);
+        return dns_build_response(qid, qname, DNS_RCODE_OK, reply, resp_buf, resp_buf_len);
     }
 
     /* ── fin.<mid>.<sid>.llm.local. ───────────────────────────────── */
@@ -166,8 +161,7 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
         const char *sid = parts[2];
 
         if (mid < 0 || mid >= MAX_MSG_IDS) {
-            return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL,
-                                      resp_buf, resp_buf_len);
+            return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL, resp_buf, resp_buf_len);
         }
 
         pthread_mutex_lock(&g_lock);
@@ -184,8 +178,8 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
             llm_task_t *task = malloc(sizeof(llm_task_t));
             if (!task) {
                 pthread_mutex_unlock(&g_lock);
-                return dns_build_response(qid, qname, DNS_RCODE_SERVFAIL, NULL,
-                                          resp_buf, resp_buf_len);
+                return dns_build_response(qid, qname, DNS_RCODE_SERVFAIL, NULL, resp_buf,
+                                          resp_buf_len);
             }
             sess->busy++;
             task->sess = sess;
@@ -196,8 +190,7 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
         }
         pthread_mutex_unlock(&g_lock);
 
-        return dns_build_response(qid, qname, DNS_RCODE_OK, reply,
-                                  resp_buf, resp_buf_len);
+        return dns_build_response(qid, qname, DNS_RCODE_OK, reply, resp_buf, resp_buf_len);
     }
 
     /* ── <seq>.<mid>.down.<sid>.llm.local. ────────────────────────── */
@@ -207,13 +200,11 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
         const char *sid = parts[3];
 
         if (seq < 0) {
-            return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL,
-                                      resp_buf, resp_buf_len);
+            return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL, resp_buf, resp_buf_len);
         }
 
         if (mid < 0 || mid >= MAX_MSG_IDS) {
-            return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL,
-                                      resp_buf, resp_buf_len);
+            return dns_build_response(qid, qname, DNS_RCODE_FORMERR, NULL, resp_buf, resp_buf_len);
         }
 
         pthread_mutex_lock(&g_lock);
@@ -241,11 +232,9 @@ int handle_dns_query(const uint8_t *query, size_t query_len,
         }
         pthread_mutex_unlock(&g_lock);
 
-        return dns_build_response(qid, qname, DNS_RCODE_OK, reply,
-                                  resp_buf, resp_buf_len);
+        return dns_build_response(qid, qname, DNS_RCODE_OK, reply, resp_buf, resp_buf_len);
     }
 
     /* Unknown query */
-    return dns_build_response(qid, qname, DNS_RCODE_NXDOMAIN, NULL,
-                              resp_buf, resp_buf_len);
+    return dns_build_response(qid, qname, DNS_RCODE_NXDOMAIN, NULL, resp_buf, resp_buf_len);
 }

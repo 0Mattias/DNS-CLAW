@@ -46,7 +46,7 @@ extern const tool_def_t TOOL_DEFS[];
 
 typedef struct {
     session_t *sess;
-    int        msg_id;
+    int msg_id;
 } llm_task_t;
 
 /*
@@ -57,8 +57,7 @@ void *process_llm_thread(void *arg);
 /* ── History helpers (provider-dispatched) ────────────────────────────────── */
 
 void history_add_user_msg(cJSON *history, const char *content);
-void history_add_tool_response(cJSON *history, const char *tool_name,
-                               const char *content);
+void history_add_tool_response(cJSON *history, const char *tool_name, const char *content);
 
 /* ── Provider API calls ──────────────────────────────────────────────────── */
 
@@ -77,7 +76,7 @@ int llm_parse_response(cJSON *api_resp, cJSON **out_result, cJSON **out_history)
  * High-level: add entry to history, call API, parse, append model response.
  * Returns canonical result_json or NULL on failure.
  */
-cJSON *llm_process_request(session_t *sess, const char *type,
-                           const char *content, const char *tool_name);
+cJSON *llm_process_request(session_t *sess, const char *type, const char *content,
+                           const char *tool_name);
 
 #endif /* CLAW_SERVER_LLM_H */

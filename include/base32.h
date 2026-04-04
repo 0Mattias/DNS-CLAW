@@ -15,8 +15,7 @@
  * Writes at most `dst_len` bytes to `dst` (including NUL terminator).
  * Returns the number of characters written (excluding NUL), or -1 on error.
  */
-int base32_encode(const uint8_t *src, size_t src_len,
-                  char *dst, size_t dst_len);
+int base32_encode(const uint8_t *src, size_t src_len, char *dst, size_t dst_len);
 
 /*
  * Decode a NUL-terminated Base32 string `src` (case-insensitive, no padding).

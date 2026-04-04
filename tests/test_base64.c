@@ -61,13 +61,16 @@ static void test_null_src_decode(void)
 static void test_rfc4648_vectors(void)
 {
     /* RFC 4648 test vectors */
-    struct { const char *plain; const char *encoded; } vecs[] = {
-        {"",       ""},
-        {"f",      "Zg=="},
-        {"fo",     "Zm8="},
-        {"foo",    "Zm9v"},
-        {"foob",   "Zm9vYg=="},
-        {"fooba",  "Zm9vYmE="},
+    struct {
+        const char *plain;
+        const char *encoded;
+    } vecs[] = {
+        {"", ""},
+        {"f", "Zg=="},
+        {"fo", "Zm8="},
+        {"foo", "Zm9v"},
+        {"foob", "Zm9vYg=="},
+        {"fooba", "Zm9vYmE="},
         {"foobar", "Zm9vYmFy"},
     };
     for (int i = 0; i < 7; i++) {
@@ -103,7 +106,7 @@ static void test_invalid_chars_rejected(void)
     /* Characters outside the base64 alphabet must be rejected */
     assert(base64_decode("!!!!", buf, sizeof(buf)) == -1);
     assert(base64_decode("AB\x01D", buf, sizeof(buf)) == -1);
-    assert(base64_decode("AB CD", buf, sizeof(buf)) == -1);  /* space */
+    assert(base64_decode("AB CD", buf, sizeof(buf)) == -1); /* space */
     assert(base64_decode("@@@@", buf, sizeof(buf)) == -1);
     assert(base64_decode("\xff\xff\xff\xff", buf, sizeof(buf)) == -1);
     PASS("invalid_chars_rejected");
@@ -114,7 +117,7 @@ static void test_invalid_trailing_length(void)
     uint8_t buf[64];
     /* After stripping padding, rem==1 is invalid base64 (6 bits, need >= 12) */
     assert(base64_decode("A", buf, sizeof(buf)) == -1);
-    assert(base64_decode("AAAAA", buf, sizeof(buf)) == -1);  /* 5 chars → rem=1 */
+    assert(base64_decode("AAAAA", buf, sizeof(buf)) == -1); /* 5 chars → rem=1 */
     PASS("invalid_trailing_length");
 }
 
@@ -140,7 +143,8 @@ static void test_binary_roundtrip(void)
 {
     /* All byte values 0x00-0xFF */
     uint8_t data[256];
-    for (int i = 0; i < 256; i++) data[i] = (uint8_t)i;
+    for (int i = 0; i < 256; i++)
+        data[i] = (uint8_t)i;
 
     char enc[512];
     assert(base64_encode(data, sizeof(data), enc, sizeof(enc)) > 0);

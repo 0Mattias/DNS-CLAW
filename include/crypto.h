@@ -18,11 +18,11 @@
 #include <stdint.h>
 
 /* Magic header identifying encrypted payloads */
-#define CRYPTO_MAGIC_0  0xCE
-#define CRYPTO_MAGIC_1  0x01
+#define CRYPTO_MAGIC_0 0xCE
+#define CRYPTO_MAGIC_1 0x01
 
 /* Overhead: 2 (magic) + 12 (nonce) + 16 (tag) = 30 bytes */
-#define CRYPTO_OVERHEAD 30
+#define CRYPTO_OVERHEAD  30
 #define CRYPTO_NONCE_LEN 12
 #define CRYPTO_TAG_LEN   16
 
@@ -45,8 +45,7 @@ int tunnel_crypto_enabled(void);
  * On success, sets `*out_len` and returns 0.
  * Returns -1 on error.
  */
-int tunnel_encrypt(const uint8_t *in, size_t in_len,
-                   uint8_t *out, size_t *out_len);
+int tunnel_encrypt(const uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len);
 
 /*
  * Decrypt `in_len` bytes of ciphertext `in` into `out`.
@@ -55,7 +54,6 @@ int tunnel_encrypt(const uint8_t *in, size_t in_len,
  * On success, sets `*out_len` and returns 0.
  * Returns -1 on error (wrong key, tampered data, or not encrypted).
  */
-int tunnel_decrypt(const uint8_t *in, size_t in_len,
-                   uint8_t *out, size_t *out_len);
+int tunnel_decrypt(const uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len);
 
 #endif /* DNS_CLAW_CRYPTO_H */

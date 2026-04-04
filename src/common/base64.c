@@ -4,23 +4,17 @@
 #include "base64.h"
 #include <string.h>
 
-static const char B64[] =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static const char B64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 static const int B64_DEC[256] = {
-    ['A']=0,  ['B']=1,  ['C']=2,  ['D']=3,  ['E']=4,  ['F']=5,
-    ['G']=6,  ['H']=7,  ['I']=8,  ['J']=9,  ['K']=10, ['L']=11,
-    ['M']=12, ['N']=13, ['O']=14, ['P']=15, ['Q']=16, ['R']=17,
-    ['S']=18, ['T']=19, ['U']=20, ['V']=21, ['W']=22, ['X']=23,
-    ['Y']=24, ['Z']=25,
-    ['a']=26, ['b']=27, ['c']=28, ['d']=29, ['e']=30, ['f']=31,
-    ['g']=32, ['h']=33, ['i']=34, ['j']=35, ['k']=36, ['l']=37,
-    ['m']=38, ['n']=39, ['o']=40, ['p']=41, ['q']=42, ['r']=43,
-    ['s']=44, ['t']=45, ['u']=46, ['v']=47, ['w']=48, ['x']=49,
-    ['y']=50, ['z']=51,
-    ['0']=52, ['1']=53, ['2']=54, ['3']=55, ['4']=56, ['5']=57,
-    ['6']=58, ['7']=59, ['8']=60, ['9']=61,
-    ['+']=62, ['/']=63,
+    ['A'] = 0,  ['B'] = 1,  ['C'] = 2,  ['D'] = 3,  ['E'] = 4,  ['F'] = 5,  ['G'] = 6,  ['H'] = 7,
+    ['I'] = 8,  ['J'] = 9,  ['K'] = 10, ['L'] = 11, ['M'] = 12, ['N'] = 13, ['O'] = 14, ['P'] = 15,
+    ['Q'] = 16, ['R'] = 17, ['S'] = 18, ['T'] = 19, ['U'] = 20, ['V'] = 21, ['W'] = 22, ['X'] = 23,
+    ['Y'] = 24, ['Z'] = 25, ['a'] = 26, ['b'] = 27, ['c'] = 28, ['d'] = 29, ['e'] = 30, ['f'] = 31,
+    ['g'] = 32, ['h'] = 33, ['i'] = 34, ['j'] = 35, ['k'] = 36, ['l'] = 37, ['m'] = 38, ['n'] = 39,
+    ['o'] = 40, ['p'] = 41, ['q'] = 42, ['r'] = 43, ['s'] = 44, ['t'] = 45, ['u'] = 46, ['v'] = 47,
+    ['w'] = 48, ['x'] = 49, ['y'] = 50, ['z'] = 51, ['0'] = 52, ['1'] = 53, ['2'] = 54, ['3'] = 55,
+    ['4'] = 56, ['5'] = 57, ['6'] = 58, ['7'] = 59, ['8'] = 60, ['9'] = 61, ['+'] = 62, ['/'] = 63,
 };
 
 /* Lookup table: 1 = valid base64 alphabet character, 0 = invalid.
@@ -28,17 +22,14 @@ static const int B64_DEC[256] = {
  * making it impossible to distinguish "valid 'A'" from "invalid byte" using
  * B64_DEC alone. Without this, garbage input silently decodes as if it were 'A'. */
 static const uint8_t B64_VALID[256] = {
-    ['A']=1, ['B']=1, ['C']=1, ['D']=1, ['E']=1, ['F']=1, ['G']=1, ['H']=1,
-    ['I']=1, ['J']=1, ['K']=1, ['L']=1, ['M']=1, ['N']=1, ['O']=1, ['P']=1,
-    ['Q']=1, ['R']=1, ['S']=1, ['T']=1, ['U']=1, ['V']=1, ['W']=1, ['X']=1,
-    ['Y']=1, ['Z']=1,
-    ['a']=1, ['b']=1, ['c']=1, ['d']=1, ['e']=1, ['f']=1, ['g']=1, ['h']=1,
-    ['i']=1, ['j']=1, ['k']=1, ['l']=1, ['m']=1, ['n']=1, ['o']=1, ['p']=1,
-    ['q']=1, ['r']=1, ['s']=1, ['t']=1, ['u']=1, ['v']=1, ['w']=1, ['x']=1,
-    ['y']=1, ['z']=1,
-    ['0']=1, ['1']=1, ['2']=1, ['3']=1, ['4']=1, ['5']=1, ['6']=1, ['7']=1,
-    ['8']=1, ['9']=1,
-    ['+']=1, ['/']=1,
+    ['A'] = 1, ['B'] = 1, ['C'] = 1, ['D'] = 1, ['E'] = 1, ['F'] = 1, ['G'] = 1, ['H'] = 1,
+    ['I'] = 1, ['J'] = 1, ['K'] = 1, ['L'] = 1, ['M'] = 1, ['N'] = 1, ['O'] = 1, ['P'] = 1,
+    ['Q'] = 1, ['R'] = 1, ['S'] = 1, ['T'] = 1, ['U'] = 1, ['V'] = 1, ['W'] = 1, ['X'] = 1,
+    ['Y'] = 1, ['Z'] = 1, ['a'] = 1, ['b'] = 1, ['c'] = 1, ['d'] = 1, ['e'] = 1, ['f'] = 1,
+    ['g'] = 1, ['h'] = 1, ['i'] = 1, ['j'] = 1, ['k'] = 1, ['l'] = 1, ['m'] = 1, ['n'] = 1,
+    ['o'] = 1, ['p'] = 1, ['q'] = 1, ['r'] = 1, ['s'] = 1, ['t'] = 1, ['u'] = 1, ['v'] = 1,
+    ['w'] = 1, ['x'] = 1, ['y'] = 1, ['z'] = 1, ['0'] = 1, ['1'] = 1, ['2'] = 1, ['3'] = 1,
+    ['4'] = 1, ['5'] = 1, ['6'] = 1, ['7'] = 1, ['8'] = 1, ['9'] = 1, ['+'] = 1, ['/'] = 1,
 };
 
 size_t base64_encoded_len(size_t n)
@@ -51,23 +42,22 @@ size_t base64_decoded_len(size_t n)
     return (n / 4) * 3;
 }
 
-int base64_encode(const uint8_t *src, size_t src_len,
-                  char *dst, size_t dst_len)
+int base64_encode(const uint8_t *src, size_t src_len, char *dst, size_t dst_len)
 {
     size_t needed = base64_encoded_len(src_len) + 1;
-    if (dst_len < needed) return -1;
+    if (dst_len < needed)
+        return -1;
 
     size_t di = 0;
     size_t si = 0;
 
     while (si + 3 <= src_len) {
-        uint32_t n = ((uint32_t)src[si] << 16) |
-                     ((uint32_t)src[si+1] << 8) |
-                     ((uint32_t)src[si+2]);
+        uint32_t n =
+            ((uint32_t)src[si] << 16) | ((uint32_t)src[si + 1] << 8) | ((uint32_t)src[si + 2]);
         dst[di++] = B64[(n >> 18) & 0x3F];
         dst[di++] = B64[(n >> 12) & 0x3F];
-        dst[di++] = B64[(n >>  6) & 0x3F];
-        dst[di++] = B64[(n      ) & 0x3F];
+        dst[di++] = B64[(n >> 6) & 0x3F];
+        dst[di++] = B64[(n) & 0x3F];
         si += 3;
     }
 
@@ -79,10 +69,10 @@ int base64_encode(const uint8_t *src, size_t src_len,
         dst[di++] = '=';
         dst[di++] = '=';
     } else if (rem == 2) {
-        uint32_t n = ((uint32_t)src[si] << 16) | ((uint32_t)src[si+1] << 8);
+        uint32_t n = ((uint32_t)src[si] << 16) | ((uint32_t)src[si + 1] << 8);
         dst[di++] = B64[(n >> 18) & 0x3F];
         dst[di++] = B64[(n >> 12) & 0x3F];
-        dst[di++] = B64[(n >>  6) & 0x3F];
+        dst[di++] = B64[(n >> 6) & 0x3F];
         dst[di++] = '=';
     }
 
@@ -92,47 +82,52 @@ int base64_encode(const uint8_t *src, size_t src_len,
 
 int base64_decode(const char *src, uint8_t *dst, size_t dst_len)
 {
-    if (!src || !src[0]) return 0;  /* empty input → 0 bytes decoded */
+    if (!src || !src[0])
+        return 0; /* empty input → 0 bytes decoded */
     size_t slen = strlen(src);
     /* Strip trailing '=' */
-    while (slen > 0 && src[slen - 1] == '=') slen--;
+    while (slen > 0 && src[slen - 1] == '=')
+        slen--;
 
     size_t max_out = (slen * 3) / 4;
-    if (dst_len < max_out) return -1;
+    if (dst_len < max_out)
+        return -1;
 
     /* Reject rem==1 (invalid base64 — one char encodes only 6 bits, need at least 2) */
-    if ((slen % 4) == 1) return -1;
+    if ((slen % 4) == 1)
+        return -1;
 
     /* Validate all characters before decoding */
     for (size_t i = 0; i < slen; i++) {
-        if (!B64_VALID[(unsigned char)src[i]]) return -1;
+        if (!B64_VALID[(unsigned char)src[i]])
+            return -1;
     }
 
     size_t di = 0;
     size_t si = 0;
 
     while (si + 4 <= slen) {
-        uint32_t n = ((uint32_t)B64_DEC[(unsigned char)src[si]]   << 18) |
-                     ((uint32_t)B64_DEC[(unsigned char)src[si+1]] << 12) |
-                     ((uint32_t)B64_DEC[(unsigned char)src[si+2]] <<  6) |
-                     ((uint32_t)B64_DEC[(unsigned char)src[si+3]]);
+        uint32_t n = ((uint32_t)B64_DEC[(unsigned char)src[si]] << 18) |
+                     ((uint32_t)B64_DEC[(unsigned char)src[si + 1]] << 12) |
+                     ((uint32_t)B64_DEC[(unsigned char)src[si + 2]] << 6) |
+                     ((uint32_t)B64_DEC[(unsigned char)src[si + 3]]);
         dst[di++] = (uint8_t)(n >> 16);
-        dst[di++] = (uint8_t)(n >>  8);
+        dst[di++] = (uint8_t)(n >> 8);
         dst[di++] = (uint8_t)(n);
         si += 4;
     }
 
     size_t rem = slen - si;
     if (rem == 2) {
-        uint32_t n = ((uint32_t)B64_DEC[(unsigned char)src[si]]   << 18) |
-                     ((uint32_t)B64_DEC[(unsigned char)src[si+1]] << 12);
+        uint32_t n = ((uint32_t)B64_DEC[(unsigned char)src[si]] << 18) |
+                     ((uint32_t)B64_DEC[(unsigned char)src[si + 1]] << 12);
         dst[di++] = (uint8_t)(n >> 16);
     } else if (rem == 3) {
-        uint32_t n = ((uint32_t)B64_DEC[(unsigned char)src[si]]   << 18) |
-                     ((uint32_t)B64_DEC[(unsigned char)src[si+1]] << 12) |
-                     ((uint32_t)B64_DEC[(unsigned char)src[si+2]] <<  6);
+        uint32_t n = ((uint32_t)B64_DEC[(unsigned char)src[si]] << 18) |
+                     ((uint32_t)B64_DEC[(unsigned char)src[si + 1]] << 12) |
+                     ((uint32_t)B64_DEC[(unsigned char)src[si + 2]] << 6);
         dst[di++] = (uint8_t)(n >> 16);
-        dst[di++] = (uint8_t)(n >>  8);
+        dst[di++] = (uint8_t)(n >> 8);
     }
 
     return (int)di;
