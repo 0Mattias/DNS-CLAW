@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import Chat from "@/components/Chat";
 import {
@@ -19,21 +19,11 @@ interface Conversation {
 }
 
 export default function Home() {
-  const [config, setConfig] = useState<ConnectionConfig>({
-    server: "127.0.0.1",
-    port: 53,
-    transport: "udp",
-  });
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [config, setConfig] = useState<ConnectionConfig>(() => loadConfig());
+  const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations());
   const [currentSession, setCurrentSession] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [connected, setConnected] = useState(false);
-
-  // Load from localStorage on mount
-  useEffect(() => {
-    setConfig(loadConfig());
-    setConversations(loadConversations());
-  }, []);
 
   // Save config when it changes
   const handleConfigChange = useCallback((newConfig: ConnectionConfig) => {
