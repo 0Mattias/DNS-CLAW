@@ -108,6 +108,9 @@ dnsclaw                   # terminal 2
 
 ## Web UI
 
+<img width="579" height="338" alt="Screenshot 2026-04-04 at 3 42 32 AM" src="https://github.com/user-attachments/assets/eef614aa-e07d-4c30-a744-3611622cbe4b" />
+
+
 Don't want a terminal? The web frontend tunnels all traffic through DNS — same protocol, same bypass, same encryption as the CLI client.
 
 ```bash
