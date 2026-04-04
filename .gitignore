@@ -18,3 +18,8 @@ CMakeUserPresets.json
 compile_commands.json
 .vscode/
 .idea/
+
+# Web UI
+web/node_modules/
+web/.next/
+web/.env.local

@@ -58,6 +58,27 @@ sudo -E ./build/dnsclaw-server      # if bind fails (-E preserves your .env conf
 echo "prompt" | ./build/dnsclaw  # pipe mode
 ```
 
+## Web UI
+
+A Next.js web frontend in `web/` that tunnels all traffic through the DNS-CLAW server — same protocol as the CLI client, reimplemented in TypeScript. No SDKs, no direct LLM API calls.
+
+```bash
+cd web && npm install && npm run dev    # http://localhost:3000
+```
+
+### Web Architecture
+
+The `web/lib/` directory is a TypeScript port of the C client protocol:
+- **`dns.ts`** — DNS wire format builder/parser (mirrors `dns_proto.c`)
+- **`base32.ts`** — RFC 4648 Base32 no-padding (mirrors `base32.c`)
+- **`crypto.ts`** — AES-256-GCM + HKDF-SHA256 (mirrors `crypto.c`)
+- **`transport.ts`** — UDP (`dgram`), DoH (`fetch`), DoT (`tls`) with 3-retry backoff
+- **`protocol.ts`** — Full session flow: init → encrypt → base32 chunk → upload → finalize → poll → base64 decode → decrypt → JSON parse
+
+API routes (`app/api/chat/route.ts`, `app/api/sessions/route.ts`) call `protocol.ts` and stream status events to the browser via `ReadableStream`.
+
+Frontend uses `react-markdown` + `remark-gfm` + `shiki` for rendering. Terminal-inspired dark theme with the DNS-CLAW gradient palette.
+
 ## Architecture
 
 Three CMake targets:

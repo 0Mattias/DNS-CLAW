@@ -17,5 +17,12 @@ services:
       # - ./cert.pem:/app/cert.pem:ro
       # - ./key.pem:/app/key.pem:ro
 
+  web:
+    build: ./web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+
 volumes:
   sessions:
