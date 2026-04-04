@@ -3,6 +3,11 @@
 [![CI](https://github.com/0Mattias/DNS-CLAW/actions/workflows/ci.yml/badge.svg)](https://github.com/0Mattias/DNS-CLAW/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue)
+![C11](https://img.shields.io/badge/C11-standard-brightgreen)
+![Transport](https://img.shields.io/badge/transport-UDP%20%7C%20DoT%20%7C%20DoH-purple)
+![Encryption](https://img.shields.io/badge/encryption-AES--256--GCM-red)
+![LLMs](https://img.shields.io/badge/LLMs-Gemini%20%7C%20OpenAI%20%7C%20Claude%20%7C%20OpenRouter-orange)
+![Docker](https://img.shields.io/badge/docker-ready-blue)
 
 **C Language Agentic Wireformat** — An agentic AI CLI tunneled through DNS, written in pure C.
 

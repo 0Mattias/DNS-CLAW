@@ -7,7 +7,6 @@
 
 import * as dgram from "dgram";
 import * as tls from "tls";
-import * as net from "net";
 import { buildQuery, parseTxtResponse } from "./dns";
 import type { ConnectionConfig } from "./types";
 

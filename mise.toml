@@ -1,3 +1,4 @@
 [tools]
 cmake = "latest"
 ninja = "latest"
+node = "latest"
