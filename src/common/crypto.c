@@ -7,6 +7,7 @@
 #include "crypto.h"
 
 #include <limits.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -15,8 +16,8 @@
 
 /* ── State ────────────────────────────────────────────────────────────────── */
 
-static uint8_t g_key[32]; /* AES-256 key derived from PSK */
-static int g_enabled = 0; /* 1 if PSK was set */
+static uint8_t g_key[32];                         /* AES-256 key derived from PSK */
+static atomic_int g_enabled = ATOMIC_VAR_INIT(0); /* 1 if PSK was set */
 
 /* ── HKDF-SHA256 (RFC 5869) ──────────────────────────────────────────────── */
 
@@ -65,7 +66,7 @@ static int hkdf_sha256(const uint8_t *salt, size_t salt_len, const uint8_t *ikm,
 
 int tunnel_crypto_init(const char *psk)
 {
-    g_enabled = 0;
+    atomic_store(&g_enabled, 0);
     OPENSSL_cleanse(g_key, sizeof(g_key));
 
     if (!psk || !psk[0])
@@ -78,18 +79,18 @@ int tunnel_crypto_init(const char *psk)
                     sizeof(info) - 1, g_key, sizeof(g_key)) < 0)
         return -1;
 
-    g_enabled = 1;
+    atomic_store(&g_enabled, 1);
     return 0;
 }
 
 int tunnel_crypto_enabled(void)
 {
-    return g_enabled;
+    return atomic_load(&g_enabled);
 }
 
 int tunnel_encrypt(const uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len)
 {
-    if (!g_enabled)
+    if (!atomic_load(&g_enabled))
         return -1;
     if (in_len > (size_t)INT_MAX)
         return -1; /* OpenSSL EVP takes int lengths */
@@ -144,7 +145,7 @@ cleanup:
 
 int tunnel_decrypt(const uint8_t *in, size_t in_len, uint8_t *out, size_t *out_len)
 {
-    if (!g_enabled)
+    if (!atomic_load(&g_enabled))
         return -1;
     if (in_len > (size_t)INT_MAX)
         return -1; /* OpenSSL EVP takes int lengths */
