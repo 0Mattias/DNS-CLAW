@@ -1,0 +1,21 @@
+services:
+  server:
+    build: .
+    ports:
+      - "53:53/udp"
+    environment:
+      # Set your LLM provider API key (pick one):
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - TUNNEL_PSK=${TUNNEL_PSK}
+      - AUTH_TOKEN=${AUTH_TOKEN}
+    volumes:
+      - sessions:/root/.config/dnsclaw/sessions
+      # Uncomment for DoT/DoH:
+      # - ./cert.pem:/app/cert.pem:ro
+      # - ./key.pem:/app/key.pem:ro
+
+volumes:
+  sessions:

@@ -22,6 +22,8 @@ typedef struct {
     int use_dot;
     int use_doh;
     int port;
+    char auth_token[128]; /* empty string = auth disabled */
+    int session_persist;  /* 1 = save session history to disk */
 } server_config_t;
 
 extern server_config_t g_config;

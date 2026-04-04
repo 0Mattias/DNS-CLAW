@@ -170,8 +170,9 @@ if [ "$HAS_KEY" -eq 0 ]; then
 
     echo -e "  ${R2}│${RST}"
 
-    # Generate PSK
+    # Generate PSK and auth token
     PSK=$(openssl rand -base64 32)
+    AUTH=$(openssl rand -hex 16)
 
     # Write config (port auto-detected from transport mode)
     cat > "$ENV_FILE" <<ENVEOF
@@ -184,6 +185,9 @@ ${MODEL_NAME}="${MODEL}"
 
 # Payload Encryption (AES-256-GCM)
 TUNNEL_PSK="${PSK}"
+
+# Client authentication (clients must present this token)
+AUTH_TOKEN="${AUTH}"
 
 # Transport (UDP is default; set ONE to true for TLS)
 # Port is auto-detected: UDP=53, DoT=853, DoH=443
@@ -202,6 +206,7 @@ ENVEOF
     chmod 600 "$ENV_FILE"
     ok "Config saved to $ENV_FILE"
     ok "Generated encryption key (TUNNEL_PSK)"
+    ok "Generated auth token (AUTH_TOKEN)"
 fi
 
 echo -e "  ${R2}│${RST}"

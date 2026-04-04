@@ -28,6 +28,7 @@ typedef struct {
     int insecure;
     int no_color;
     int typewriter;
+    char auth_token[128];
 } client_config_t;
 
 extern client_config_t g_cfg;

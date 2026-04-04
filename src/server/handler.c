@@ -20,6 +20,7 @@
 #include "server/llm.h"
 #include "server/log.h"
 #include "server/session.h"
+#include "server/transport.h"
 
 /* macOS provides arc4random_buf in <stdlib.h> but _POSIX_C_SOURCE hides it */
 extern void arc4random_buf(void *, size_t);
@@ -87,6 +88,19 @@ int handle_dns_query(const uint8_t *query, size_t query_len, uint8_t *resp_buf, 
         tok = strtok_r(NULL, ".", &saveptr);
     }
 
+    /* ── Auth token validation ────────────────────────────────────── */
+    if (g_config.auth_token[0]) {
+        /* Token must be the label immediately before "llm.local." */
+        int token_idx = nparts - 3; /* ...<token>.llm.local. */
+        if (token_idx < 0 || strcmp(parts[token_idx], g_config.auth_token) != 0) {
+            return dns_build_response(qid, qname, DNS_RCODE_REFUSED, NULL, resp_buf, resp_buf_len);
+        }
+        /* Strip the token label so existing parsing works unchanged */
+        for (int i = token_idx; i < nparts - 1; i++)
+            parts[i] = parts[i + 1];
+        nparts--;
+    }
+
     /* ── init.llm.local. ──────────────────────────────────────────── */
     if (nparts >= 3 && strcmp(parts[0], "init") == 0) {
         pthread_mutex_lock(&g_lock);
@@ -112,6 +126,64 @@ int handle_dns_query(const uint8_t *query, size_t query_len, uint8_t *resp_buf, 
 
         log_ok("init", "New session: %s", sess->id);
         return dns_build_response(qid, qname, DNS_RCODE_OK, sess->id, resp_buf, resp_buf_len);
+    }
+
+    /* ── resume.<old_sid>.llm.local. ────────────────────────────── */
+    if (nparts >= 4 && strcmp(parts[0], "resume") == 0) {
+        const char *old_sid = parts[1];
+
+        pthread_mutex_lock(&g_lock);
+        session_t *sess = NULL;
+        for (int i = 0; i < MAX_SESSIONS; i++) {
+            if (!g_sessions[i].active) {
+                sess = &g_sessions[i];
+                break;
+            }
+        }
+        if (!sess) {
+            pthread_mutex_unlock(&g_lock);
+            return dns_build_response(qid, qname, DNS_RCODE_SERVFAIL, NULL, resp_buf, resp_buf_len);
+        }
+
+        memset(sess, 0, sizeof(*sess));
+        generate_id(sess->id, sizeof(sess->id));
+        sess->active = 1;
+        sess->created_at = time(NULL);
+        sess->last_active = sess->created_at;
+        sess->history = cJSON_CreateArray();
+
+        /* Try to load history from saved session */
+        if (session_load(old_sid, sess) < 0) {
+            /* No saved session — return empty new session anyway */
+            log_warn("resume", "No saved session %s — starting fresh", old_sid);
+        } else {
+            log_ok("resume", "Restored session %s → %s", old_sid, sess->id);
+        }
+        pthread_mutex_unlock(&g_lock);
+
+        return dns_build_response(qid, qname, DNS_RCODE_OK, sess->id, resp_buf, resp_buf_len);
+    }
+
+    /* ── list.sessions.llm.local. ────────────────────────────────── */
+    if (nparts >= 4 && strcmp(parts[0], "list") == 0 && strcmp(parts[1], "sessions") == 0) {
+        char ids[64][32];
+        time_t dates[64];
+        int count = session_list_saved(ids, dates, 64);
+
+        cJSON *arr = cJSON_CreateArray();
+        for (int i = 0; i < count; i++) {
+            cJSON *obj = cJSON_CreateObject();
+            cJSON_AddStringToObject(obj, "id", ids[i]);
+            cJSON_AddNumberToObject(obj, "date", (double)dates[i]);
+            cJSON_AddItemToArray(arr, obj);
+        }
+        char *json = cJSON_PrintUnformatted(arr);
+        cJSON_Delete(arr);
+
+        int rlen = dns_build_response(qid, qname, DNS_RCODE_OK, json ? json : "[]", resp_buf,
+                                      resp_buf_len);
+        free(json);
+        return rlen;
     }
 
     /* ── <chunk>.<seq>.up.<mid>.<sid>.llm.local. ──────────────────── */

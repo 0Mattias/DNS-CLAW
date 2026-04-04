@@ -75,6 +75,30 @@ int g_msg_id = 0;
 int g_turn = 0;
 atomic_int g_interrupted = 0;
 
+/*
+ * Build a domain suffix: ".<token>.llm.local." or ".llm.local."
+ * depending on whether AUTH_TOKEN is configured.
+ */
+const char *domain_suffix(void)
+{
+    static char buf[256];
+    if (g_cfg.auth_token[0])
+        snprintf(buf, sizeof(buf), ".%s.llm.local.", g_cfg.auth_token);
+    else
+        snprintf(buf, sizeof(buf), ".llm.local.");
+    return buf;
+}
+
+const char *domain_prefix_suffix(const char *prefix)
+{
+    static char buf[512];
+    if (g_cfg.auth_token[0])
+        snprintf(buf, sizeof(buf), "%s.%s.llm.local.", prefix, g_cfg.auth_token);
+    else
+        snprintf(buf, sizeof(buf), "%s.llm.local.", prefix);
+    return buf;
+}
+
 /* ── DNS Query Wrapper ────────────────────────────────────────────────────── */
 
 static int do_dns_query_once(const char *qname, char *txt_out, size_t txt_out_len)
@@ -114,7 +138,7 @@ int init_session(int show_msg)
     spinner_start(&sp, "Initializing session...");
 
     char txt[DNS_MAX_TXT];
-    int rc = do_dns_query("init.llm.local.", txt, sizeof(txt));
+    int rc = do_dns_query(domain_prefix_suffix("init"), txt, sizeof(txt));
 
     spinner_stop(&sp);
 
@@ -218,8 +242,8 @@ int process_message_loop(const char *type, const char *content, const char *tool
             for (char *cp = b32_buf; *cp; cp++)
                 *cp = (char)tolower((unsigned char)*cp);
 
-            snprintf(qname, sizeof(qname), "%s.%d.up.%d.%s.llm.local.", b32_buf, seq, current_mid,
-                     g_session_id);
+            snprintf(qname, sizeof(qname), "%s.%d.up.%d.%s%s", b32_buf, seq, current_mid,
+                     g_session_id, domain_suffix());
 
             if (do_dns_query(qname, txt, sizeof(txt)) < 0 || strcmp(txt, "ACK") != 0) {
                 upload_ok = 0;
@@ -241,7 +265,7 @@ int process_message_loop(const char *type, const char *content, const char *tool
         snprintf(spin_msg, sizeof(spin_msg), "Waiting for agent...");
         spinner_set_message(&sp, spin_msg);
 
-        snprintf(qname, sizeof(qname), "fin.%d.%s.llm.local.", current_mid, g_session_id);
+        snprintf(qname, sizeof(qname), "fin.%d.%s%s", current_mid, g_session_id, domain_suffix());
         if (do_dns_query(qname, txt, sizeof(txt)) < 0 || strcmp(txt, "ACK") != 0) {
             spinner_stop(&sp);
             cJSON_Delete(payload);
@@ -264,8 +288,8 @@ int process_message_loop(const char *type, const char *content, const char *tool
         int poll_count = 0;
 
         while (!g_interrupted) {
-            snprintf(qname, sizeof(qname), "%d.%d.down.%s.llm.local.", down_seq, current_mid,
-                     g_session_id);
+            snprintf(qname, sizeof(qname), "%d.%d.down.%s%s", down_seq, current_mid, g_session_id,
+                     domain_suffix());
             if (do_dns_query(qname, txt, sizeof(txt)) < 0) {
                 spinner_stop(&sp);
                 cJSON_Delete(payload);

@@ -19,6 +19,7 @@
 #define DNS_RCODE_FORMERR  1
 #define DNS_RCODE_SERVFAIL 2
 #define DNS_RCODE_NXDOMAIN 3
+#define DNS_RCODE_REFUSED  5
 
 /* ── Wire-format builder/parser ──────────────────────────────────────────── */
 

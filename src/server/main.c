@@ -98,6 +98,8 @@ static void print_help(const char *argv0)
     printf("  USE_DOT=true        Enable DNS-over-TLS (port 853)\n");
     printf("  USE_DOH=true        Enable DNS-over-HTTPS (port 443)\n");
     printf("  SERVER_PORT         Override auto-detected port\n");
+    printf("  AUTH_TOKEN          Client auth token (clients must match)\n");
+    printf("  SESSION_PERSIST     Save sessions to disk (default: true)\n");
 }
 
 int main(int argc, char **argv)
@@ -297,6 +299,18 @@ int main(int argc, char **argv)
     g_config.tls_key[sizeof(g_config.tls_key) - 1] = '\0';
     free(key);
 
+    /* Auth token */
+    char *auth = load_env("AUTH_TOKEN", NULL);
+    if (auth) {
+        strncpy(g_config.auth_token, auth, sizeof(g_config.auth_token) - 1);
+        g_config.auth_token[sizeof(g_config.auth_token) - 1] = '\0';
+        free(auth);
+    }
+
+    /* Session persistence */
+    const char *persist_env = getenv("SESSION_PERSIST");
+    g_config.session_persist = (!persist_env || strcmp(persist_env, "false") != 0);
+
     /* Initialize payload encryption from PSK */
     char *psk = load_env("TUNNEL_PSK", NULL);
     if (tunnel_crypto_init(psk) < 0) {
@@ -320,6 +334,8 @@ int main(int argc, char **argv)
     log_info("config", "Encryption: %s",
              tunnel_crypto_enabled() ? "AES-256-GCM (PSK)" : "none (plaintext)");
     log_info("config", "Port:      %d", g_config.port);
+    log_info("config", "Auth:      %s", g_config.auth_token[0] ? "token (enabled)" : "none");
+    log_info("config", "Sessions:  %s", g_config.session_persist ? "persistent" : "in-memory only");
     {
         const char *custom_sp = getenv("SYSTEM_PROMPT");
         if (custom_sp && custom_sp[0])

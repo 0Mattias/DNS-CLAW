@@ -19,9 +19,11 @@
 #endif
 
 #include <curl/curl.h>
+#include <cJSON.h>
 
 #include "config.h"
 #include "crypto.h"
+#include "dns_proto.h"
 #include "protocol.h"
 #include "client/protocol.h"
 #include "client/render.h"
@@ -240,6 +242,13 @@ int main(int argc, char **argv)
     if (!g_is_tty)
         g_cfg.typewriter = 0;
 
+    /* Auth token */
+    const char *auth = getenv("AUTH_TOKEN");
+    if (auth && auth[0]) {
+        strncpy(g_cfg.auth_token, auth, sizeof(g_cfg.auth_token) - 1);
+        g_cfg.auth_token[sizeof(g_cfg.auth_token) - 1] = '\0';
+    }
+
     /* Initialize payload encryption from PSK */
     const char *psk = getenv("TUNNEL_PSK");
     if (tunnel_crypto_init(psk) < 0) {
@@ -421,6 +430,74 @@ int main(int argc, char **argv)
             printf("  Encryption:  %s\n", tunnel_crypto_enabled() ? "AES-256-GCM (PSK)" : "none");
             printf("  Server:      %s:%d\n", g_cfg.server_addr, g_cfg.port);
             printf("\n");
+            continue;
+        }
+        if (strcmp(text, "/sessions") == 0) {
+            char txt[DNS_MAX_TXT];
+            if (do_dns_query(domain_prefix_suffix("list.sessions"), txt, sizeof(txt)) == 0 &&
+                txt[0] == '[') {
+                cJSON *arr = cJSON_Parse(txt);
+                if (arr && cJSON_GetArraySize(arr) > 0) {
+                    printf("\n");
+                    set_fg_rgb(THEME_R1);
+                    printf(ANSI_BOLD "  Saved Sessions\n" ANSI_RESET);
+                    set_fg_rgb(THEME_DIM);
+                    printf("  ──────────────────────────────────────────\n" ANSI_RESET);
+                    cJSON *item;
+                    cJSON_ArrayForEach(item, arr)
+                    {
+                        const char *id = cJSON_GetStringValue(cJSON_GetObjectItem(item, "id"));
+                        double ts = cJSON_GetNumberValue(cJSON_GetObjectItem(item, "date"));
+                        if (id) {
+                            char timestr[64] = "";
+                            if (ts > 0) {
+                                time_t t = (time_t)ts;
+                                struct tm *tm = localtime(&t);
+                                strftime(timestr, sizeof(timestr), "%Y-%m-%d %H:%M", tm);
+                            }
+                            set_fg_rgb(THEME_R3);
+                            printf("  %.12s", id);
+                            printf(ANSI_RESET ANSI_DIM "  %s\n" ANSI_RESET, timestr);
+                        }
+                    }
+                    printf(ANSI_DIM "\n  Resume with: /resume <id>\n" ANSI_RESET);
+                } else {
+                    printf("\n  No saved sessions.\n");
+                }
+                cJSON_Delete(arr);
+            } else {
+                printf("\n  No saved sessions.\n");
+            }
+            printf("\n");
+            continue;
+        }
+        if (strncmp(text, "/resume", 7) == 0 && (text[7] == ' ' || text[7] == '\0')) {
+            const char *resume_id = text + 7;
+            while (*resume_id == ' ')
+                resume_id++;
+            if (!*resume_id) {
+                set_fg_rgb(255, 200, 0);
+                printf("\n  Usage: /resume <session-id>\n" ANSI_RESET);
+                printf(ANSI_DIM "  List sessions with: /sessions\n" ANSI_RESET "\n");
+                continue;
+            }
+            char qname[512];
+            snprintf(qname, sizeof(qname), "resume.%s%s", resume_id, domain_suffix());
+            char txt[DNS_MAX_TXT];
+            if (do_dns_query(qname, txt, sizeof(txt)) == 0 && strlen(txt) > 0) {
+                strncpy(g_session_id, txt, sizeof(g_session_id) - 1);
+                g_session_id[sizeof(g_session_id) - 1] = '\0';
+                g_msg_id = 0;
+                g_turn = 0;
+                export_log_clear();
+                printf("\n");
+                set_fg_rgb(THEME_R3);
+                printf("  ✓ " ANSI_RESET "Resumed session: %s\n", g_session_id);
+                printf(ANSI_DIM "    History restored from: %.12s\n" ANSI_RESET "\n", resume_id);
+            } else {
+                set_fg_rgb(255, 80, 80);
+                printf("\n  ✗ Failed to resume session.\n" ANSI_RESET "\n");
+            }
             continue;
         }
         if (strncmp(text, "/export", 7) == 0) {

@@ -77,22 +77,28 @@ target_link_libraries(dnsclaw_common PUBLIC
     OpenSSL::SSL OpenSSL::Crypto
 )
 
-# ── Server ───────────────────────────────────────────────────────────────────
+# ── Server library (shared by server executable and tests) ───────────────────
 
-add_executable(dnsclaw-server
-    src/server/main.c
+add_library(dnsclaw_server_lib STATIC
     src/server/log.c
     src/server/session.c
     src/server/llm.c
     src/server/handler.c
-    src/server/transport.c
 )
-target_link_libraries(dnsclaw-server PRIVATE
+target_link_libraries(dnsclaw_server_lib PUBLIC
     dnsclaw_common
     cjson
     Threads::Threads
 )
-target_include_directories(dnsclaw-server PRIVATE ${cJSON_SOURCE_DIR})
+target_include_directories(dnsclaw_server_lib PUBLIC ${cJSON_SOURCE_DIR})
+
+# ── Server executable ────────────────────────────────────────────────────────
+
+add_executable(dnsclaw-server
+    src/server/main.c
+    src/server/transport.c
+)
+target_link_libraries(dnsclaw-server PRIVATE dnsclaw_server_lib)
 
 # ── Client ───────────────────────────────────────────────────────────────────
 
@@ -142,6 +148,10 @@ add_test(NAME crypto COMMAND test_crypto)
 add_executable(test_dns_proto tests/test_dns_proto.c)
 target_link_libraries(test_dns_proto PRIVATE dnsclaw_common)
 add_test(NAME dns_proto COMMAND test_dns_proto)
+
+add_executable(test_integration tests/test_integration.c)
+target_link_libraries(test_integration PRIVATE dnsclaw_server_lib)
+add_test(NAME integration COMMAND test_integration)
 
 # ── Install ──────────────────────────────────────────────────────────────────
 

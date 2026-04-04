@@ -13,6 +13,10 @@ extern int g_msg_id;
 extern int g_turn;
 extern atomic_int g_interrupted;
 
+/* Auth-aware domain suffix helpers */
+const char *domain_suffix(void);
+const char *domain_prefix_suffix(const char *prefix);
+
 /* DNS query dispatcher (DoH/DoT/UDP) */
 int do_dns_query(const char *qname, char *txt_out, size_t txt_out_len);
 

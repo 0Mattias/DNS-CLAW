@@ -52,4 +52,9 @@ void session_destroy(session_t *sess);
 void *session_reaper_thread(void *arg);
 session_t *find_session(const char *sid);
 
+/* Persistence: save/load session history as JSON files */
+int session_save(session_t *sess);
+int session_load(const char *sid, session_t *sess);
+int session_list_saved(char ids[][32], time_t dates[], int max);
+
 #endif /* CLAW_SERVER_SESSION_H */

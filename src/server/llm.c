@@ -1035,6 +1035,11 @@ void *process_llm_thread(void *arg)
 
     fprintf(stderr, "[llm] Response ready sid=%s mid=%d chunks=%d\n", sess->id, msg_id, nchunks);
 
+    /* Persist session history to disk */
+    pthread_mutex_lock(&g_lock);
+    session_save(sess);
+    pthread_mutex_unlock(&g_lock);
+
 done:
     pthread_mutex_lock(&g_lock);
     sess->busy--;

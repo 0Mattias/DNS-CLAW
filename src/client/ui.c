@@ -45,11 +45,13 @@ void print_help(void)
         {"/clear", "Start a new chat session"},
         {"/compact [focus]", "Compact conversation context"},
         {"/export [file]", "Export conversation to markdown"},
+        {"/sessions", "List saved sessions"},
+        {"/resume <id>", "Resume a saved session"},
         {"/config", "Show current configuration"},
         {"/status", "Show session info"},
         {"/exit", "Exit the application"},
     };
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 9; i++) {
         set_fg_rgb(THEME_R2);
         printf("  %-20s", cmds[i][0]);
         printf(ANSI_RESET ANSI_DIM " %s\n" ANSI_RESET, cmds[i][1]);
@@ -204,6 +206,10 @@ void config_show(void)
     set_fg_rgb(THEME_R2);
     printf("  Encryption:   " ANSI_RESET "%s\n",
            tunnel_crypto_enabled() ? "AES-256-GCM (PSK)" : "none");
+
+    /* Auth */
+    set_fg_rgb(THEME_R2);
+    printf("  Auth:         " ANSI_RESET "%s\n", g_cfg.auth_token[0] ? "token (enabled)" : "none");
 
     /* System prompt */
     const char *sp = getenv("SYSTEM_PROMPT");
