@@ -296,6 +296,9 @@ int main(void)
     strncpy(g_config.model, "test-model", sizeof(g_config.model) - 1);
     tunnel_crypto_init(NULL); /* no encryption by default */
 
+    /* Force-init cJSON global hooks (avoids benign TSan race on first parse) */
+    cJSON_Delete(cJSON_Parse("{}"));
+
     /* Initialize curl for LLM thread (will fail but needs init) */
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
