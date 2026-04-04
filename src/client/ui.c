@@ -71,7 +71,7 @@ void print_usage(const char *argv0)
     printf("\nConfig subcommands:\n");
     printf("  config            Show current configuration\n");
     printf("  config --edit     Open config in $EDITOR\n");
-    printf("  config --set K=V  Set a config value (e.g. --set ANTHROPIC_MODEL=claude-sonnet-4-20250514)\n");
+    printf("  config --set K=V  Set a config value (e.g. --set ANTHROPIC_MODEL=claude-sonnet-4-6)\n");
     printf("  config --provider Re-run interactive provider setup\n");
 }
 
@@ -360,8 +360,8 @@ int config_provider_interactive(void)
         "ANTHROPIC_MODEL", "OPENROUTER_MODEL"
     };
     static const char *defaults[] = {
-        "gemini-3.1-pro-preview", "gpt-5.4",
-        "claude-opus-4-6-20250610", "openrouter/auto"
+        "gemini-2.5-flash", "gpt-5.4",
+        "claude-sonnet-4-6", "openrouter/auto"
     };
     static const char *labels[] = {
         "Gemini", "OpenAI", "Claude (Anthropic)", "OpenRouter"

@@ -33,7 +33,7 @@ const char *PROVIDER_NAMES[] = {
 };
 
 const char *PROVIDER_DEFAULT_MODELS[] = {
-    "gemini-3.1-pro-preview", "gpt-5.4", "claude-opus-4-6-20250610",
+    "gemini-2.5-flash", "gpt-5.4", "claude-sonnet-4-6",
     "openrouter/auto"
 };
 

@@ -96,7 +96,7 @@ View and change settings without editing files manually.
 ```bash
 dnsclaw config                                     # show current config
 dnsclaw config --edit                              # open config in $EDITOR
-dnsclaw config --set ANTHROPIC_MODEL=claude-sonnet-4-20250514  # set a value
+dnsclaw config --set ANTHROPIC_MODEL=claude-sonnet-4-6  # set a value
 dnsclaw config --provider                          # interactive provider setup
 ```
 
@@ -114,7 +114,7 @@ If no API key is configured, the server diagnoses the cause (missing `.env` file
 The server logs all activity to stderr with colored output:
 ```
 [config] Provider:  Claude
-[config] Model:     claude-sonnet-4-20250514
+[config] Model:     claude-sonnet-4-6
 [config] Transport: UDP (plain)
 [config] Encryption: AES-256-GCM (PSK)
 [config] Port:      53
@@ -159,13 +159,13 @@ The easiest way to manage settings is `dnsclaw config` — see [config subcomman
 # Or set LLM_PROVIDER explicitly: gemini | openai | anthropic | openrouter
 
 GEMINI_API_KEY="your-api-key"
-GEMINI_MODEL="gemini-3.1-pro-preview"
+GEMINI_MODEL="gemini-2.5-flash"
 
 # OPENAI_API_KEY="sk-..."
 # OPENAI_MODEL="gpt-5.4"
 
 # ANTHROPIC_API_KEY="sk-ant-..."
-# ANTHROPIC_MODEL="claude-opus-4-6-20250610"
+# ANTHROPIC_MODEL="claude-sonnet-4-6"
 
 # OPENROUTER_API_KEY="sk-or-..."
 # OPENROUTER_MODEL="openrouter/auto"
