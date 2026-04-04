@@ -6,6 +6,7 @@
  */
 #include "crypto.h"
 
+#include <limits.h>
 #include <string.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -67,7 +68,7 @@ static int hkdf_sha256(const uint8_t *salt, size_t salt_len,
 int tunnel_crypto_init(const char *psk)
 {
     g_enabled = 0;
-    memset(g_key, 0, sizeof(g_key));
+    OPENSSL_cleanse(g_key, sizeof(g_key));
 
     if (!psk || !psk[0])
         return 0;  /* No PSK = encryption disabled, not an error */
@@ -94,6 +95,7 @@ int tunnel_encrypt(const uint8_t *in, size_t in_len,
                    uint8_t *out, size_t *out_len)
 {
     if (!g_enabled) return -1;
+    if (in_len > (size_t)INT_MAX) return -1;  /* OpenSSL EVP takes int lengths */
 
     /* Layout: [magic:2][nonce:12][ciphertext:in_len][tag:16] */
     uint8_t nonce[CRYPTO_NONCE_LEN];
@@ -148,6 +150,7 @@ int tunnel_decrypt(const uint8_t *in, size_t in_len,
                    uint8_t *out, size_t *out_len)
 {
     if (!g_enabled) return -1;
+    if (in_len > (size_t)INT_MAX) return -1;  /* OpenSSL EVP takes int lengths */
 
     /* Minimum size: 2 (magic) + 12 (nonce) + 0 (ciphertext) + 16 (tag) */
     if (in_len < CRYPTO_OVERHEAD) return -1;

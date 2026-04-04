@@ -851,8 +851,9 @@ void *process_llm_thread(void *arg)
     uint8_t payload_bytes[65536];
     int decoded_len = base32_decode(b32_combined, payload_bytes,
                                     sizeof(payload_bytes));
-    if (decoded_len < 0) {
-        fprintf(stderr, "[llm] base32 decode failed (input len=%zu)\n", b32_pos);
+    if (decoded_len < 0 || (size_t)decoded_len >= sizeof(payload_bytes)) {
+        fprintf(stderr, "[llm] base32 decode failed (input len=%zu, decoded=%d)\n",
+                b32_pos, decoded_len);
         pthread_mutex_lock(&g_lock);
         sess->responses[msg_id].failed = 1;
         pthread_mutex_unlock(&g_lock);
@@ -906,9 +907,11 @@ void *process_llm_thread(void *arg)
             sess->id, msg_id, type);
 
     /* 2. Process through provider-dispatched LLM layer */
-    cJSON_Delete(payload);
-
     cJSON *result_json = llm_process_request(sess, type, content, tool_name);
+
+    /* Free payload AFTER llm_process_request — type/content/tool_name point
+     * into the cJSON tree's memory and become dangling after cJSON_Delete. */
+    cJSON_Delete(payload);
     if (!result_json) {
         pthread_mutex_lock(&g_lock);
         sess->responses[msg_id].failed = 1;

@@ -753,6 +753,10 @@ int process_message_loop(const char *type, const char *content,
                 if (!url) {
                     snprintf(tool_result, sizeof(tool_result),
                              "Error: Missing url");
+                } else if (strncmp(url, "http://", 7) != 0 &&
+                           strncmp(url, "https://", 8) != 0) {
+                    snprintf(tool_result, sizeof(tool_result),
+                             "Error: Only http:// and https:// URLs are allowed");
                 } else {
                     set_fg_rgb(THEME_DIM);
                     printf("  │ ");

@@ -23,6 +23,24 @@ static const int B64_DEC[256] = {
     ['+']=62, ['/']=63,
 };
 
+/* Lookup table: 1 = valid base64 alphabet character, 0 = invalid.
+ * Separate from B64_DEC because 'A' legitimately maps to 0 in the decode table,
+ * making it impossible to distinguish "valid 'A'" from "invalid byte" using
+ * B64_DEC alone. Without this, garbage input silently decodes as if it were 'A'. */
+static const uint8_t B64_VALID[256] = {
+    ['A']=1, ['B']=1, ['C']=1, ['D']=1, ['E']=1, ['F']=1, ['G']=1, ['H']=1,
+    ['I']=1, ['J']=1, ['K']=1, ['L']=1, ['M']=1, ['N']=1, ['O']=1, ['P']=1,
+    ['Q']=1, ['R']=1, ['S']=1, ['T']=1, ['U']=1, ['V']=1, ['W']=1, ['X']=1,
+    ['Y']=1, ['Z']=1,
+    ['a']=1, ['b']=1, ['c']=1, ['d']=1, ['e']=1, ['f']=1, ['g']=1, ['h']=1,
+    ['i']=1, ['j']=1, ['k']=1, ['l']=1, ['m']=1, ['n']=1, ['o']=1, ['p']=1,
+    ['q']=1, ['r']=1, ['s']=1, ['t']=1, ['u']=1, ['v']=1, ['w']=1, ['x']=1,
+    ['y']=1, ['z']=1,
+    ['0']=1, ['1']=1, ['2']=1, ['3']=1, ['4']=1, ['5']=1, ['6']=1, ['7']=1,
+    ['8']=1, ['9']=1,
+    ['+']=1, ['/']=1,
+};
+
 size_t base64_encoded_len(size_t n)
 {
     return ((n + 2) / 3) * 4;
@@ -81,6 +99,14 @@ int base64_decode(const char *src, uint8_t *dst, size_t dst_len)
 
     size_t max_out = (slen * 3) / 4;
     if (dst_len < max_out) return -1;
+
+    /* Reject rem==1 (invalid base64 — one char encodes only 6 bits, need at least 2) */
+    if ((slen % 4) == 1) return -1;
+
+    /* Validate all characters before decoding */
+    for (size_t i = 0; i < slen; i++) {
+        if (!B64_VALID[(unsigned char)src[i]]) return -1;
+    }
 
     size_t di = 0;
     size_t si = 0;

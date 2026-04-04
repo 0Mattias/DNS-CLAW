@@ -260,7 +260,7 @@ int dns_parse_txt_response(const uint8_t *msg, size_t msglen,
         pos += 4; /* TTL */
         uint16_t rdlen = get16(msg + pos);    pos += 2;
 
-        if (rtype == DNS_TYPE_TXT && i == 0) {
+        if (rtype == DNS_TYPE_TXT && txt_pos == 0) {
             /* TXT RDATA: sequence of length-prefixed strings */
             size_t rdata_end = pos + rdlen;
             if (rdata_end > msglen) return -1;  /* malformed: RDATA exceeds packet */
@@ -369,6 +369,12 @@ int dns_query_udp(const char *server_ip, uint16_t port,
         close(g_udp_fd);
         g_udp_fd = -1;
         return -1;
+    }
+
+    /* Verify the response ID matches our query to prevent DNS spoofing */
+    if (rlen >= 2) {
+        uint16_t resp_id = ((uint16_t)rbuf[0] << 8) | rbuf[1];
+        if (resp_id != qid) return -1;
     }
 
     int rcode;
@@ -483,6 +489,7 @@ struct doh_buf {
 static size_t doh_write_cb(void *contents, size_t size, size_t nmemb,
                            void *userp)
 {
+    if (nmemb != 0 && size > SIZE_MAX / nmemb) return 0;
     size_t total = size * nmemb;
     struct doh_buf *buf = (struct doh_buf *)userp;
     if (buf->len + total > buf->cap) return 0;

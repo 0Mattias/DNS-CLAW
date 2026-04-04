@@ -8,6 +8,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "config.h"
@@ -243,9 +244,16 @@ void config_edit(void)
     if (!editor) editor = getenv("VISUAL");
     if (!editor) editor = "vi";
 
-    char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "%s '%s'", editor, path);
-    system(cmd);
+    pid_t pid = fork();
+    if (pid == 0) {
+        execlp(editor, editor, path, (char *)NULL);
+        _exit(127);
+    } else if (pid > 0) {
+        int status;
+        waitpid(pid, &status, 0);
+    } else {
+        fprintf(stderr, "Error: fork() failed\n");
+    }
 }
 
 int config_set(const char *key_value)
