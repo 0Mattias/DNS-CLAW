@@ -37,7 +37,7 @@ Supports **Gemini**, **OpenAI**, **Claude (Anthropic)**, and **OpenRouter**.
   - [CI](#ci)
   - [Code Style](#code-style)
 - [Project Structure](#project-structure)
-- [Troubleshooting](#troubleshooting)
+- [Troubleshooting](#troubleshooting) — [Server](#server-wont-start) | [Client](#client-cant-connect) | [Encryption](#encryption-errors) | [LLM API](#llm-api-errors) | [Sessions](#session-issues) | [Build](#build--setup-issues) | [Web UI](#web-ui-issues)
 - [License](#license)
 
 ## Why DNS?
@@ -433,15 +433,96 @@ setup.sh               First-run setup script
 
 ## Troubleshooting
 
+### Server won't start
+
+| Error | Cause | Fix |
+|---|---|---|
+| `FATAL: No API key configured` | No LLM provider key in `.env` or environment | Run `./setup.sh` or `dnsclaw config --provider`. The error output lists every `.env` path that was searched |
+| `FATAL: LLM_PROVIDER=X but KEY is not set` | `LLM_PROVIDER` is set but the matching API key isn't | Set the correct key (e.g., `ANTHROPIC_API_KEY` for `anthropic`) |
+| `FATAL: Unknown LLM_PROVIDER` | Typo in `LLM_PROVIDER` | Use one of: `gemini`, `openai`, `anthropic`, `openrouter` |
+| `bind: Permission denied` | Port 53/443/853 requires root on Linux | `sudo -E ./build/dnsclaw-server` (the `-E` preserves your `.env`), or set `SERVER_PORT=8053` for an unprivileged port |
+| `bind: Address already in use` | Another process (e.g., systemd-resolved) is on the port | Find it with `sudo lsof -i :53`, then stop it or use a different port |
+| Hint: "Running as root without `sudo -E`" | Your `.env` is in your user home but root can't see it | Always use `sudo -E` so environment variables carry through |
+| Hint: ".env found but contains no API key" | Config file exists but keys are commented out or empty | Edit `~/.config/dnsclaw/.env` and uncomment/fill in one provider key |
+| `Failed to load TLS certs` | Certificate or key file missing/invalid for DoT/DoH | Check `TLS_CERT` and `TLS_KEY` paths. Generate with: `openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout key.pem -out cert.pem -subj "/CN=llm.local"` |
+| `SSL_CTX_new failed` | OpenSSL initialization failure | Verify OpenSSL 3.x is installed: `openssl version` |
+
+### Client can't connect
+
+| Error | Cause | Fix |
+|---|---|---|
+| `Failed to initialize session` | Client can't reach the server | 1) Check server is running. 2) Verify `DNS_SERVER_ADDR` and port match. 3) Check firewall allows DNS traffic |
+| `UDP timeout` / query hangs | No response from server within 5 seconds | Server may not be listening, port mismatch, or firewall blocking UDP |
+| `DNS response ID mismatch` | Response doesn't match the query (anti-spoofing check) | Network issue or middlebox interference; retry or switch transport |
+| DoH connection refused | Wrong address format | Use full URL with path: `DNS_SERVER_ADDR=https://127.0.0.1/dns-query` |
+| `DoT timeout` | TLS handshake or response timeout | Check server is listening on DoT port (default 853), certs are valid, and `INSECURE_SKIP_VERIFY=true` if using self-signed certs |
+
+### Encryption errors
+
+| Error | Cause | Fix |
+|---|---|---|
+| `Decryption failed — PSK mismatch or corrupted data` | `TUNNEL_PSK` differs between client and server | Copy the exact same key to both. Regenerate with `openssl rand -base64 32` |
+| `Invalid magic bytes` | One side has encryption enabled, the other doesn't | Either set `TUNNEL_PSK` on both, or remove it from both |
+| `Encryption failed` | Crypto initialization issue | Check `TUNNEL_PSK` is set and OpenSSL is working |
+
+### LLM API errors
+
+| Server log | Cause | Fix |
+|---|---|---|
+| `HTTP 401` / `invalid_api_key` | API key is wrong or revoked | Verify your key at the provider's dashboard; run `dnsclaw config --provider` to re-enter |
+| `HTTP 429` (rate limit) | Too many requests to the provider | Wait and retry; the server retries automatically with backoff |
+| `HTTP 5xx` (server error) | Provider is having issues | Check provider status page; the server retries up to 3 times |
+| `All N attempts failed` | Every retry failed | Check network, provider status, and API key validity |
+| `API call failed` | Generic failure after retries | Check the preceding `HTTP` or `curl error` line in logs for details |
+| `curl error: ...` | Network/DNS/SSL issue in the outbound HTTPS call | Check internet connectivity from the server; verify DNS resolution works |
+| `JSON parse failed` | LLM returned non-JSON response | Unusual; check provider status or if the model name is valid |
+
+### Session issues
+
+| Error | Cause | Fix |
+|---|---|---|
+| `ERR:NOSESSION` | Session expired or doesn't exist | Sessions are reaped after 30 min idle. Start a new one with `/clear` |
+| `ERR:OVERFLOW` | Message too large for the tunnel | Split into smaller messages |
+| `/resume` fails | Session ID doesn't exist on server | List available sessions with `/sessions`; old sessions may have been reaped |
+
+### Build & setup issues
+
 | Problem | Fix |
 |---|---|
-| `Failed to initialize session` | Check server is running, ports match, `DNS_SERVER_ADDR` is correct |
-| `Decryption failed — PSK mismatch` | Ensure client and server use the same `TUNNEL_PSK` |
-| `FATAL: No API key configured` | Run `./setup.sh` or `dnsclaw config --provider` |
-| `bind: Permission denied` | `sudo -E` on Linux, or set `SERVER_PORT` to a high port |
-| DoH connection refused | Use full URL: `https://127.0.0.1/dns-query` |
-| `base32 decode failed` | Rebuild both binaries from same source |
-| Setup script fails | See [Prerequisites](#prerequisites) for your platform |
+| `setup.sh` says "Missing: cmake" (or other tool) | Install prerequisites — see [Prerequisites](#prerequisites) |
+| Build fails with OpenSSL errors | macOS: `brew install openssl@3`. Ubuntu: `sudo apt-get install libssl-dev` |
+| Build fails with curl errors | macOS: `brew install curl`. Ubuntu: `sudo apt-get install libcurl4-openssl-dev` |
+| `binaries not found in build/` | Clean rebuild: `rm -rf build && cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build` |
+| `base32 decode failed` at runtime | Client/server version mismatch; rebuild both from the same source |
+| `npm install` fails in `web/` | Ensure Node.js is installed (v20+). If using mise: `mise install` |
+
+### Web UI issues
+
+| Problem | Fix |
+|---|---|
+| Web UI can't connect to server | Check server address/port in the sidebar. The web UI talks to the server via its Node.js backend, so `127.0.0.1` means the machine running `npm run dev`, not your browser |
+| `DNS query failed after 3 attempts` | Server unreachable from the web backend; same fixes as [Client can't connect](#client-cant-connect) |
+| `Upload failed at chunk N` | Network instability between web backend and DNS server; retry |
+| `Server error: ERR:...` | Server-side issue; check server logs for details |
+
+### Quick diagnostics
+
+```bash
+# Is the server running?
+pgrep -f dnsclaw-server
+
+# What's on port 53?
+sudo lsof -i :53
+
+# Can you reach the server?
+dig @127.0.0.1 init.llm.local TXT    # should return a session ID
+
+# Check your config
+dnsclaw config
+
+# Server logs (run in foreground)
+./build/dnsclaw-server    # watch stderr for [config], [init], [llm] messages
+```
 
 ## License
 
