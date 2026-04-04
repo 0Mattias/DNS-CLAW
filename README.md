@@ -159,7 +159,7 @@ The easiest way to manage settings is `dnsclaw config` — see [config subcomman
 # Or set LLM_PROVIDER explicitly: gemini | openai | anthropic | openrouter
 
 GEMINI_API_KEY="your-api-key"
-GEMINI_MODEL="gemini-2.5-flash"
+GEMINI_MODEL="gemini-3.1-pro-preview"
 
 # OPENAI_API_KEY="sk-..."
 # OPENAI_MODEL="gpt-5.4"

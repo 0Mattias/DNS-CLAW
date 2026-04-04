@@ -360,7 +360,7 @@ int config_provider_interactive(void)
         "ANTHROPIC_MODEL", "OPENROUTER_MODEL"
     };
     static const char *defaults[] = {
-        "gemini-2.5-flash", "gpt-5.4",
+        "gemini-3.1-pro-preview", "gpt-5.4",
         "claude-sonnet-4-6", "openrouter/auto"
     };
     static const char *labels[] = {

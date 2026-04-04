@@ -93,7 +93,7 @@ if [ "$HAS_KEY" -eq 0 ]; then
     case "$CHOICE" in
         1) KEY_NAME="GEMINI_API_KEY";     MODEL_NAME="GEMINI_MODEL";     DEFAULT_MODEL="gemini-3.1-pro-preview" ;;
         2) KEY_NAME="OPENAI_API_KEY";     MODEL_NAME="OPENAI_MODEL";     DEFAULT_MODEL="gpt-5.4" ;;
-        3) KEY_NAME="ANTHROPIC_API_KEY";  MODEL_NAME="ANTHROPIC_MODEL";  DEFAULT_MODEL="claude-opus-4-6-20250610" ;;
+        3) KEY_NAME="ANTHROPIC_API_KEY";  MODEL_NAME="ANTHROPIC_MODEL";  DEFAULT_MODEL="claude-sonnet-4-6" ;;
         4) KEY_NAME="OPENROUTER_API_KEY"; MODEL_NAME="OPENROUTER_MODEL"; DEFAULT_MODEL="openrouter/auto" ;;
         *) err "Invalid choice"; exit 1 ;;
     esac
