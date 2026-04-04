@@ -1,5 +1,9 @@
 # DNS-CLAW
 
+[![CI](https://github.com/0Mattias/DNS-CLAW/actions/workflows/ci.yml/badge.svg)](https://github.com/0Mattias/DNS-CLAW/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue)
+
 **C Language Agentic Wireformat** — An agentic AI CLI tunneled through DNS, written in pure C.
 
 Talk to LLMs through DNS queries. The client encodes your messages as Base32 TXT record lookups, the server decodes them, calls your LLM provider, and sends responses back as chunked TXT records. Fully agentic — the model can run commands, read/write/edit files, search codebases, and fetch URLs on your machine.
@@ -7,9 +11,47 @@ Talk to LLMs through DNS queries. The client encodes your messages as Base32 TXT
 Supports **Gemini**, **OpenAI**, **Claude (Anthropic)**, and **OpenRouter**.
 
 ## Example
-<img width="784" height="447" alt="Screenshot 2026-03-30 at 10 59 37 PM" src="https://github.com/user-attachments/assets/9e8b62b3-c633-474d-852c-9ad3fd08cd63" />
+
+<img width="784" height="447" alt="DNS-CLAW terminal session" src="https://github.com/user-attachments/assets/9e8b62b3-c633-474d-852c-9ad3fd08cd63" />
+
+## Why DNS?
+
+DNS is the one protocol that works almost everywhere — through captive portals, hotel WiFi, corporate firewalls, and restricted networks where direct HTTPS to AI APIs is blocked. DNS-CLAW encrypts your prompts inside standard-looking DNS queries so you can reach your LLM from anywhere.
+
+- **Works on restricted networks** — DNS traffic (port 53) is almost never blocked
+- **Invisible to DPI** — AES-256-GCM payload encryption makes queries look like random noise
+- **Zero cloud dependencies** — run your own server, keep your data
 
 ## Quick Start
+
+### Prerequisites
+
+<details>
+<summary><b>macOS</b></summary>
+
+```bash
+# Xcode command-line tools (provides the C compiler)
+xcode-select --install
+
+# Build dependencies
+brew install cmake openssl curl
+```
+
+libedit (for command history) is pre-installed on macOS.
+</details>
+
+<details>
+<summary><b>Ubuntu / Debian</b></summary>
+
+```bash
+sudo apt-get update
+sudo apt-get install build-essential cmake libssl-dev libcurl4-openssl-dev
+```
+
+Optional: `sudo apt-get install libedit-dev` for command history and line editing.
+</details>
+
+### Setup
 
 ```bash
 git clone https://github.com/0Mattias/DNS-CLAW.git
@@ -17,18 +59,22 @@ cd DNS-CLAW
 ./setup.sh
 ```
 
-The setup script checks dependencies, asks for your LLM provider/key, generates an encryption key, and builds. Re-run it safely anytime — it skips provider setup if a key already exists (use `--reconfigure` to force).
+The setup script checks dependencies, asks for your LLM provider and API key, generates an encryption key, and builds everything. Re-run safely anytime — it skips provider setup if a key already exists (use `--reconfigure` to force).
 
-Then run:
+### Run
 
 ```bash
 # Terminal 1 — start the server
-./build/dnsclaw-server              # works on macOS without root
-sudo -E ./build/dnsclaw-server      # required on Linux (port 53 needs root; -E preserves your .env)
+./build/dnsclaw-server              # macOS (no root needed)
+sudo -E ./build/dnsclaw-server      # Linux (port 53 needs root; -E preserves your .env)
 
 # Terminal 2 — start chatting
 ./build/dnsclaw
 ```
+
+### Verify it works
+
+Once both are running, type a message in the client. You should see the LLM response rendered in your terminal within a few seconds. If something goes wrong, the [Troubleshooting](#troubleshooting) section has solutions for every common error.
 
 ### Install system-wide (optional)
 
@@ -39,6 +85,21 @@ dnsclaw-server            # terminal 1 (macOS)
 sudo -E dnsclaw-server    # terminal 1 (Linux)
 dnsclaw                   # terminal 2
 ```
+
+## Features
+
+- **Multi-provider** — Gemini, OpenAI, Claude (Anthropic), OpenRouter with auto-detection
+- **Payload encryption** — AES-256-GCM with PSK defeats DPI on captive portals and public WiFi
+- **Three transports** — Plain UDP (port 53), DNS-over-TLS (port 853), DNS-over-HTTPS (port 443)
+- **7 agentic tools** — `execute_bash`, `read_file`, `write_file`, `edit_file` (surgical find-and-replace), `list_directory`, `search_files` (recursive grep), `fetch_url` — safe tools auto-approve, destructive ones prompt
+- **Rich terminal UI** — Gradient ASCII banner, async spinners, full ANSI markdown rendering (bold, italic, code, headers, lists, code blocks)
+- **One-shot mode** — `dnsclaw -m "what is 2+2"` for scripting
+- **Pipe support** — `echo "explain this" | dnsclaw`
+- **Command history** — Arrow keys, line editing, persistent history across sessions (via libedit, auto-detected)
+- **Session management** — `/clear`, `/compact`, `/status`, `/export` commands; auto-reaping of idle sessions after 30 minutes
+- **Automatic retry** — DNS queries retry up to 3 times with exponential backoff on transient failures
+- **Zero SDK** — No Go, no Python, no Node — just C, libcurl, OpenSSL, and cJSON
+- **Hardened build** — `-D_FORTIFY_SOURCE=2`, `-fstack-protector-strong`, `-fPIE`, full RELRO on Linux; ASan/UBSan/TSan in CI
 
 ## How It Works
 
@@ -75,6 +136,7 @@ echo "explain this" | dnsclaw    # pipe mode
 | `-p <port>` | Server port (overrides .env) |
 | `--no-color` | Disable ANSI colors |
 | `--no-typewriter` | Disable typewriter text effect |
+| `-h, --help` | Show usage help |
 | `-v` | Print version |
 
 **In-session commands:**
@@ -107,6 +169,8 @@ DNS server that tunnels LLM requests. Listens for DNS queries, reassembles chunk
 ```bash
 ./build/dnsclaw-server              # start (macOS — no root needed)
 sudo -E dnsclaw-server              # start (Linux — port 53 needs root)
+dnsclaw-server --help               # show all options and env vars
+dnsclaw-server --version            # print version
 ```
 
 If no API key is configured, the server diagnoses the cause (missing `.env` file, sudo without `-E`, or empty config), lists the paths it searched, and prints setup instructions. If a privileged port bind fails, it suggests `sudo -E` or setting `SERVER_PORT`.
@@ -158,15 +222,19 @@ The easiest way to manage settings is `dnsclaw config` — see [config subcomman
 # Set one API key — the server auto-detects the provider.
 # Or set LLM_PROVIDER explicitly: gemini | openai | anthropic | openrouter
 
+# Gemini — https://aistudio.google.com/apikey
 GEMINI_API_KEY="your-api-key"
 GEMINI_MODEL="gemini-3.1-pro-preview"
 
+# OpenAI — https://platform.openai.com/api-keys
 # OPENAI_API_KEY="sk-..."
 # OPENAI_MODEL="gpt-5.4"
 
+# Anthropic (Claude) — https://console.anthropic.com/settings/keys
 # ANTHROPIC_API_KEY="sk-ant-..."
 # ANTHROPIC_MODEL="claude-sonnet-4-6"
 
+# OpenRouter — https://openrouter.ai/keys
 # OPENROUTER_API_KEY="sk-or-..."
 # OPENROUTER_MODEL="openrouter/auto"
 
@@ -248,38 +316,35 @@ Encryption is optional — omit `TUNNEL_PSK` and the system works unencrypted. W
 
 For DoH, set `DNS_SERVER_ADDR=https://127.0.0.1/dns-query` (the full URL). For UDP and DoT, use just `127.0.0.1`.
 
-TLS certs for DoT/DoH are generated automatically by `./setup.sh` when you select a TLS transport.
+TLS certs for DoT/DoH are generated automatically by `./setup.sh --advanced` when you select a TLS transport.
 
-## Features
+## Troubleshooting
 
-- **Multi-provider** — Gemini, OpenAI, Claude (Anthropic), OpenRouter with auto-detection
-- **Payload encryption** — AES-256-GCM with PSK defeats DPI on captive portals and public WiFi
-- **Three transports** — Plain UDP (port 53), DNS-over-TLS (port 853), DNS-over-HTTPS (port 443)
-- **7 agentic tools** — `execute_bash`, `read_file`, `write_file`, `edit_file` (surgical find-and-replace), `list_directory`, `search_files` (recursive grep), `fetch_url` — safe tools auto-approve, destructive ones prompt
-- **Rich terminal UI** — Gradient ASCII banner, async spinners, full ANSI markdown rendering (bold, italic, code, headers, lists, code blocks)
-- **One-shot mode** — `dnsclaw -m "what is 2+2"` for scripting
-- **Pipe support** — `echo "explain this" | dnsclaw`
-- **Command history** — Arrow keys, line editing, persistent history across sessions (via libedit, auto-detected)
-- **Session management** — `/clear`, `/compact`, `/status`, `/export` commands; auto-reaping of idle sessions after 30 minutes
-- **Automatic retry** — DNS queries retry up to 3 times with exponential backoff on transient failures
-- **Zero SDK** — No Go, no Python, no Node — just C, libcurl, OpenSSL, and cJSON
-- **Hardened build** — `-D_FORTIFY_SOURCE=2`, `-fstack-protector-strong`, `-fPIE`, full RELRO on Linux; ASan/UBSan/TSan in CI
+| Problem | Cause | Fix |
+|---|---|---|
+| `Failed to initialize session` | Client can't reach server | Check server is running, ports match, and `DNS_SERVER_ADDR` is correct |
+| `Decryption failed — PSK mismatch` | Different `TUNNEL_PSK` values | Ensure client and server use the same key |
+| `FATAL: No API key configured` | Missing API key | Run `./setup.sh` or `dnsclaw config --provider` — the error output shows which `.env` paths were searched and the likely cause |
+| `bind: Permission denied` | Port 53/443/853 requires root on Linux | Run server with `sudo -E` (the `-E` preserves your env) or set `SERVER_PORT` to a high port. macOS does not require root for port 53 |
+| DoH connection refused | Wrong address format | Use `https://127.0.0.1/dns-query` (full URL with path) |
+| `base32 decode failed` | Corrupted packet or version mismatch | Rebuild both binaries from same source |
+| Setup script fails | Missing build tools | See [Prerequisites](#prerequisites) for your platform |
 
 ## Dependencies
 
-| Dependency | Purpose | Install |
-|---|---|---|
-| C compiler | clang or gcc | Xcode / `build-essential` |
-| CMake >= 3.14 | Build system | `brew install cmake` |
-| OpenSSL 3.x | TLS + AES-256-GCM encryption | `brew install openssl@3` |
-| libcurl | HTTPS transport (DoH + LLM APIs) | `brew install curl` |
-| cJSON | JSON serialization | Auto-fetched by CMake |
-| libedit (optional) | Command history + line editing | `brew install libedit` / pre-installed on macOS |
-| Ninja (optional) | Faster builds | `brew install ninja` |
+| Dependency | Purpose | macOS | Ubuntu / Debian |
+|---|---|---|---|
+| C compiler | clang or gcc | `xcode-select --install` | `build-essential` |
+| CMake >= 3.14 | Build system | `brew install cmake` | `cmake` |
+| OpenSSL 3.x | TLS + AES-256-GCM | `brew install openssl@3` | `libssl-dev` |
+| libcurl | HTTPS transport | `brew install curl` | `libcurl4-openssl-dev` |
+| cJSON | JSON serialization | Auto-fetched by CMake | Auto-fetched by CMake |
+| libedit (optional) | Command history | Pre-installed | `libedit-dev` |
+| Ninja (optional) | Faster builds | `brew install ninja` | `ninja-build` |
 
-## Manual Setup
+## Development
 
-If you prefer not to use `setup.sh`:
+### Manual setup (without setup.sh)
 
 ```bash
 # Build
@@ -300,19 +365,6 @@ sudo -E ./build/dnsclaw-server   # terminal 1 (Linux — port 53 needs root)
 ./build/dnsclaw                  # terminal 2
 ```
 
-## Troubleshooting
-
-| Problem | Cause | Fix |
-|---|---|---|
-| `Failed to initialize session` | Client can't reach server | Check server is running, ports match, and `DNS_SERVER_ADDR` is correct |
-| `Decryption failed — PSK mismatch` | Different `TUNNEL_PSK` values | Ensure client and server use the same key |
-| `FATAL: No API key configured` | Missing API key | Run `./setup.sh` or `dnsclaw config --provider` — the error output shows which `.env` paths were searched and the likely cause |
-| `bind: Permission denied` | Port 53/443/853 requires root on Linux | Run server with `sudo -E` (the `-E` preserves your env) or set `SERVER_PORT` to a high port. macOS does not require root for port 53 |
-| DoH connection refused | Wrong address format | Use `https://127.0.0.1/dns-query` (full URL with path) |
-| `base32 decode failed` | Corrupted packet or version mismatch | Rebuild both binaries from same source |
-
-## Development
-
 ### Building from source
 
 ```bash
@@ -332,7 +384,7 @@ ctest --test-dir build --output-on-failure
 
 ### CI
 
-GitHub Actions runs on every push and PR: `clang-format` check, matrix build (Ubuntu + macOS × Release + Debug), and a dedicated ThreadSanitizer job. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+GitHub Actions runs on every push and PR: `clang-format` check, matrix build (Ubuntu + macOS x Release + Debug), and a dedicated ThreadSanitizer job. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ### Code style
 

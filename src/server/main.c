@@ -70,8 +70,49 @@ static void sigint_main_handler(int sig)
 
 /* ── Main ─────────────────────────────────────────────────────────────────── */
 
-int main(void)
+static void print_version(void)
 {
+    printf("dnsclaw-server %s\n", DNS_CLAW_VERSION);
+}
+
+static void print_help(const char *argv0)
+{
+    print_version();
+    printf("\nDNS server that tunnels LLM interactions via TXT records.\n");
+    printf("Supports UDP, DNS-over-TLS (DoT), and DNS-over-HTTPS (DoH).\n\n");
+    printf("Usage: %s [options]\n\n", argv0);
+    printf("Options:\n");
+    printf("  -h, --help      Show this help\n");
+    printf("  -v, --version   Show version\n\n");
+    printf("Configuration:\n");
+    printf("  The server reads settings from ~/.config/dnsclaw/.env\n");
+    printf("  Manage config with the client:  dnsclaw config --provider\n");
+    printf("  Or run first-time setup:        ./setup.sh\n\n");
+    printf("Environment variables:\n");
+    printf("  GEMINI_API_KEY      Gemini API key\n");
+    printf("  OPENAI_API_KEY      OpenAI API key\n");
+    printf("  ANTHROPIC_API_KEY   Anthropic (Claude) API key\n");
+    printf("  OPENROUTER_API_KEY  OpenRouter API key\n");
+    printf("  LLM_PROVIDER        Force provider (gemini/openai/anthropic/openrouter)\n");
+    printf("  TUNNEL_PSK          Pre-shared key for AES-256-GCM encryption\n");
+    printf("  USE_DOT=true        Enable DNS-over-TLS (port 853)\n");
+    printf("  USE_DOH=true        Enable DNS-over-HTTPS (port 443)\n");
+    printf("  SERVER_PORT         Override auto-detected port\n");
+}
+
+int main(int argc, char **argv)
+{
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
+            print_version();
+            return 0;
+        }
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            print_help(argv[0]);
+            return 0;
+        }
+    }
+
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sigemptyset(&sa.sa_mask);

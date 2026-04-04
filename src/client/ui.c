@@ -9,6 +9,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include "config.h"
@@ -402,8 +403,25 @@ int config_provider_interactive(void)
 
     printf("  Paste your API key: ");
     fflush(stdout);
+
+    /* Disable echo so the API key isn't visible on screen */
+    struct termios old_term, new_term;
+    int have_term = isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &old_term) == 0;
+    if (have_term) {
+        new_term = old_term;
+        new_term.c_lflag &= ~(tcflag_t)ECHO;
+        tcsetattr(STDIN_FILENO, TCSANOW, &new_term);
+    }
+
     char key_buf[512] = {0};
-    if (!fgets(key_buf, sizeof(key_buf), stdin) || strlen(key_buf) < 2) {
+    int got_key = fgets(key_buf, sizeof(key_buf), stdin) != NULL && strlen(key_buf) >= 2;
+
+    if (have_term) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &old_term);
+        printf("\n");
+    }
+
+    if (!got_key) {
         fprintf(stderr, "  No API key provided\n");
         return 1;
     }

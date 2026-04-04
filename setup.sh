@@ -18,10 +18,40 @@ ok()    { echo -e "  ${R2}│  ${R3}✓${RST} $1"; }
 err()   { echo -e "  ${R1}│  ✗${RST} $1"; }
 prompt(){ echo -ne "  ${R2}│${RST}  $1"; }
 
+# ── Argument parsing ───────────────────────────────────────────────────────
 FORCE_RECONFIG=0
-if [ "$1" = "--reconfigure" ] || [ "$1" = "-r" ]; then
-    FORCE_RECONFIG=1
-fi
+ADVANCED=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --reconfigure|-r) FORCE_RECONFIG=1 ;;
+        --advanced|-a)    ADVANCED=1 ;;
+        --help|-h)
+            echo "Usage: ./setup.sh [options]"
+            echo ""
+            echo "Options:"
+            echo "  --reconfigure, -r   Force re-entry of API key and provider"
+            echo "  --advanced, -a      Show transport selection (UDP/DoT/DoH)"
+            echo "  --help, -h          Show this help"
+            echo ""
+            echo "On first run, the script checks dependencies, asks for your LLM"
+            echo "provider and API key, generates an encryption key, and builds."
+            echo "Re-run safely anytime — it skips provider setup if a key exists."
+            exit 0
+            ;;
+    esac
+done
+
+# ── OS detection ───────────────────────────────────────────────────────────
+OS="$(uname -s)"
+IS_MAC=0
+IS_LINUX=0
+HAS_APT=0
+
+case "$OS" in
+    Darwin) IS_MAC=1 ;;
+    Linux)  IS_LINUX=1; command -v apt-get &>/dev/null && HAS_APT=1 ;;
+esac
 
 # ── Banner ──────────────────────────────────────────────────────────────────
 echo ""
@@ -43,6 +73,18 @@ echo -e "  ${R2}│${RST}"
 info "Checking dependencies..."
 
 MISSING=""
+MISSING_PKGS=""
+
+# Check for a C compiler
+if ! command -v cc &>/dev/null && ! command -v gcc &>/dev/null; then
+    MISSING="$MISSING cc"
+    if [ "$IS_MAC" -eq 1 ]; then
+        MISSING_PKGS="$MISSING_PKGS (install Xcode CLI tools: xcode-select --install)"
+    elif [ "$HAS_APT" -eq 1 ]; then
+        MISSING_PKGS="$MISSING_PKGS build-essential"
+    fi
+fi
+
 for cmd in cmake openssl curl; do
     if ! command -v "$cmd" &>/dev/null; then
         MISSING="$MISSING $cmd"
@@ -51,7 +93,22 @@ done
 
 if [ -n "$MISSING" ]; then
     err "Missing:${MISSING}"
-    info "Install with: ${BOLD}brew install${MISSING}${RST}"
+    if [ "$IS_MAC" -eq 1 ]; then
+        info "Install with: ${BOLD}brew install${MISSING}${RST}"
+    elif [ "$HAS_APT" -eq 1 ]; then
+        # Map commands to package names
+        APT_PKGS="$MISSING_PKGS"
+        for cmd in $MISSING; do
+            case "$cmd" in
+                cmake)   APT_PKGS="$APT_PKGS cmake" ;;
+                openssl) APT_PKGS="$APT_PKGS libssl-dev" ;;
+                curl)    APT_PKGS="$APT_PKGS libcurl4-openssl-dev" ;;
+            esac
+        done
+        info "Install with: ${BOLD}sudo apt-get install${APT_PKGS}${RST}"
+    else
+        info "Please install:${MISSING}"
+    fi
     echo -e "  ${R2}└${DIM}──────────────────────────────────────────${RST}"
     exit 1
 fi
@@ -82,10 +139,10 @@ fi
 if [ "$HAS_KEY" -eq 0 ]; then
     info "Select your LLM provider:"
     echo -e "  ${R2}│${RST}"
-    echo -e "  ${R2}│${RST}    ${R3}1)${RST} Gemini"
-    echo -e "  ${R2}│${RST}    ${R3}2)${RST} OpenAI"
-    echo -e "  ${R2}│${RST}    ${R3}3)${RST} Claude (Anthropic)"
-    echo -e "  ${R2}│${RST}    ${R3}4)${RST} OpenRouter"
+    echo -e "  ${R2}│${RST}    ${R3}1)${RST} Gemini         ${DIM}https://aistudio.google.com/apikey${RST}"
+    echo -e "  ${R2}│${RST}    ${R3}2)${RST} OpenAI         ${DIM}https://platform.openai.com/api-keys${RST}"
+    echo -e "  ${R2}│${RST}    ${R3}3)${RST} Claude         ${DIM}https://console.anthropic.com/settings/keys${RST}"
+    echo -e "  ${R2}│${RST}    ${R3}4)${RST} OpenRouter     ${DIM}https://openrouter.ai/keys${RST}"
     echo -e "  ${R2}│${RST}"
     prompt "Choice [1-4]: "
     read -r CHOICE
@@ -150,27 +207,32 @@ fi
 echo -e "  ${R2}│${RST}"
 
 # ── Transport choice ───────────────────────────────────────────────────────
-prompt "Transport mode? [${BOLD}1${RST}] UDP  [2] DoT  [3] DoH: "
-read -r TRANSPORT
+if [ "$ADVANCED" -eq 1 ]; then
+    prompt "Transport mode? [${BOLD}1${RST}] UDP  [2] DoT  [3] DoH: "
+    read -r TRANSPORT
 
-case "$TRANSPORT" in
-    2)
-        sed -i.bak 's/USE_DOT=false/USE_DOT=true/' "$ENV_FILE"
-        rm -f "$ENV_FILE.bak"
-        ok "Transport: DNS-over-TLS (port 853)"
-        NEED_CERTS=1
-        ;;
-    3)
-        sed -i.bak 's/USE_DOH=false/USE_DOH=true/' "$ENV_FILE"
-        sed -i.bak 's|^DNS_SERVER_ADDR=.*|DNS_SERVER_ADDR=https://127.0.0.1/dns-query|' "$ENV_FILE"
-        rm -f "$ENV_FILE.bak"
-        ok "Transport: DNS-over-HTTPS (port 443)"
-        NEED_CERTS=1
-        ;;
-    *)
-        ok "Transport: UDP (port 53)"
-        ;;
-esac
+    case "$TRANSPORT" in
+        2)
+            sed -i.bak 's/USE_DOT=false/USE_DOT=true/' "$ENV_FILE"
+            rm -f "$ENV_FILE.bak"
+            ok "Transport: DNS-over-TLS (port 853)"
+            NEED_CERTS=1
+            ;;
+        3)
+            sed -i.bak 's/USE_DOH=false/USE_DOH=true/' "$ENV_FILE"
+            sed -i.bak 's|^DNS_SERVER_ADDR=.*|DNS_SERVER_ADDR=https://127.0.0.1/dns-query|' "$ENV_FILE"
+            rm -f "$ENV_FILE.bak"
+            ok "Transport: DNS-over-HTTPS (port 443)"
+            NEED_CERTS=1
+            ;;
+        *)
+            ok "Transport: UDP (port 53)"
+            ;;
+    esac
+else
+    ok "Transport: UDP (port 53)"
+    info "${DIM}Run ${RST}${BOLD}./setup.sh --advanced${RST}${DIM} to configure DoT or DoH${RST}"
+fi
 
 # ── Generate TLS certs if needed ───────────────────────────────────────────
 if [ "${NEED_CERTS:-0}" = "1" ]; then
@@ -202,21 +264,42 @@ else
     cmake --build build 2>&1 | tail -1
 fi
 
+# Verify the build produced both binaries
+if [ ! -x build/dnsclaw-server ] || [ ! -x build/dnsclaw ]; then
+    err "Build failed — binaries not found in build/"
+    info "Try a clean build: ${BOLD}rm -rf build && cmake -B build && cmake --build build${RST}"
+    echo -e "  ${R2}└${DIM}──────────────────────────────────────────${RST}"
+    exit 1
+fi
+
 ok "Build complete"
 echo -e "  ${R2}│${RST}"
 
 # ── Done ───────────────────────────────────────────────────────────────────
 echo -e "  ${R2}│${RST}  ${BOLD}Ready to go!${RST}"
 echo -e "  ${R2}│${RST}"
-echo -e "  ${R2}│${RST}  Start the server (requires sudo for port binding):"
-echo -e "  ${R2}│${RST}    ${R3}\$ sudo -E ./build/dnsclaw-server${RST}"
+
+if [ "$IS_MAC" -eq 1 ]; then
+    echo -e "  ${R2}│${RST}  Start the server:"
+    echo -e "  ${R2}│${RST}    ${R3}\$ ./build/dnsclaw-server${RST}"
+else
+    echo -e "  ${R2}│${RST}  Start the server (port 53 needs root on Linux):"
+    echo -e "  ${R2}│${RST}    ${R3}\$ sudo -E ./build/dnsclaw-server${RST}"
+fi
+
 echo -e "  ${R2}│${RST}"
 echo -e "  ${R2}│${RST}  Then in another terminal:"
 echo -e "  ${R2}│${RST}    ${R3}\$ ./build/dnsclaw${RST}"
 echo -e "  ${R2}│${RST}"
 echo -e "  ${R2}│${RST}  Or install system-wide:"
 echo -e "  ${R2}│${RST}    ${R3}\$ sudo cmake --install build${RST}"
-echo -e "  ${R2}│${RST}    ${R3}\$ sudo -E dnsclaw-server${RST}  &  ${R3}dnsclaw${RST}"
+
+if [ "$IS_MAC" -eq 1 ]; then
+    echo -e "  ${R2}│${RST}    ${R3}\$ dnsclaw-server${RST}  &  ${R3}dnsclaw${RST}"
+else
+    echo -e "  ${R2}│${RST}    ${R3}\$ sudo -E dnsclaw-server${RST}  &  ${R3}dnsclaw${RST}"
+fi
+
 echo -e "  ${R2}│${RST}"
 echo -e "  ${R2}│${RST}  Settings:  ${R3}dnsclaw config${RST}"
 echo -e "  ${R2}│${RST}"
