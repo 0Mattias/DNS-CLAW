@@ -129,14 +129,14 @@ The LLM has access to 7 tools for interacting with the client's machine:
 | Tool | Description | Approval |
 |---|---|---|
 | `client_execute_bash` | Run any shell command | **Requires approval** |
-| `client_read_file` | Read file contents | Auto-approved |
+| `client_read_file` | Read file contents | Prompts for absolute/`..` paths |
 | `client_write_file` | Create/overwrite a file | **Requires approval** |
 | `client_edit_file` | Surgical find-and-replace in a file | **Requires approval** |
 | `client_list_directory` | List directory contents with sizes | Auto-approved |
 | `client_search_files` | Recursive grep with file filtering | Auto-approved |
-| `client_fetch_url` | HTTP GET a URL | Auto-approved |
+| `client_fetch_url` | HTTP GET a URL (http/https only) | Auto-approved |
 
-Safe read-only tools run automatically. Destructive tools (bash, write, edit) prompt for `[Y/n]` confirmation.
+Safe read-only tools run automatically. Destructive tools (bash, write, edit) prompt for `[Y/n]` confirmation. `read_file` prompts when the path is absolute or contains `..` to prevent exfiltration of sensitive files.
 
 ## Configuration
 
@@ -328,15 +328,15 @@ Build types: `Release` (hardened, default), `Debug` (ASan + UBSan), `TSan` (Thre
 ctest --test-dir build --output-on-failure
 ```
 
-4 test suites cover the common library: base64, base32, AES-256-GCM crypto (roundtrip, wrong-key, tampering), and DNS wire format.
+47 tests across 4 suites cover the common library: base64 (encoding, decoding, invalid input rejection, RFC 4648 vectors), base32 (encoding, decoding, case insensitivity, binary roundtrip), AES-256-GCM crypto (roundtrip, wrong-key, tampering, empty payload, large payload), and DNS wire format (build/parse, truncation, edge cases).
 
 ### CI
 
-GitHub Actions runs on every push and PR: matrix build (Ubuntu + macOS × Release + Debug) plus a dedicated ThreadSanitizer job. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+GitHub Actions runs on every push and PR: `clang-format` check, matrix build (Ubuntu + macOS × Release + Debug), and a dedicated ThreadSanitizer job. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ### Code style
 
-A `.clang-format` config is included (LLVM-based, 4-space indent, 100-column limit).
+A `.clang-format` config is included (LLVM-based, 4-space indent, 100-column limit). CI enforces formatting — run `find src include tests -name '*.c' -o -name '*.h' | xargs clang-format -i` before committing.
 
 ## Project Structure
 

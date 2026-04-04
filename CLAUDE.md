@@ -43,7 +43,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=TSan
 cmake --build build && ctest --test-dir build --output-on-failure
 ```
 
-Tests cover the common library (base64, base32, crypto, dns_proto). CI runs on push/PR via GitHub Actions (`.github/workflows/ci.yml`).
+47 tests across 4 suites cover the common library (base64, base32, crypto, dns_proto). CI runs on push/PR via GitHub Actions (`.github/workflows/ci.yml`), including a `clang-format` check.
 
 ## Running
 
@@ -90,13 +90,30 @@ Environment variables override all `.env` files. Key settings: `*_API_KEY`, `TUN
 
 When no API key is found, the server prints diagnostic output showing which `.env` paths were searched and the likely cause (missing file, sudo without `-E`, empty config). Bind failures on privileged ports suggest `sudo -E` or `SERVER_PORT` override.
 
+## Code Style
+
+All source files are formatted with `clang-format` (LLVM-based, 4-space indent, 100-column limit). CI enforces this — PRs with formatting violations will fail. To format locally:
+
+```bash
+find src include tests -name '*.c' -o -name '*.h' | xargs clang-format -i
+```
+
 ## Security Patterns
 
 When modifying tool execution code in `client/protocol.c`:
-- **Never pass LLM-supplied strings directly to `popen()`/`system()`**. Use `shell_escape()` (defined at top of file) to wrap all parameters in safely-escaped single quotes.
+- **Never pass LLM-supplied strings directly to `popen()`/`system()`**. Use `shell_escape()` (defined at top of file) to wrap all parameters in safely-escaped single quotes. Use `fork()`/`execlp()` instead of `system()` when running a known program with arguments.
 - **All `strncpy` calls must be followed by explicit null termination**: `buf[sizeof(buf) - 1] = '\0';`
 - **Validate arithmetic on `size_t` before subtraction** to prevent underflow (e.g., check `a + b <= total` before computing `total - a - b`).
+- **Guard OpenSSL EVP length casts**: `size_t` → `int` truncation on inputs > `INT_MAX` causes undefined behavior. Add `if (len > (size_t)INT_MAX) return -1;` before casting.
+- **Use `OPENSSL_cleanse()` for key material**, never `memset()` (compiler can optimize it away).
+- **`client_read_file` prompts for confirmation** on absolute paths and paths containing `..` to prevent silent exfiltration of sensitive files.
+- **`client_fetch_url` only allows `http://` and `https://` schemes** — `file://`, `ftp://`, etc. are rejected to prevent local data exfiltration.
+- **Base64/Base32 decoders validate input characters** before decoding. Invalid bytes are rejected, not silently decoded.
+- **DNS UDP responses are verified** — the response query ID must match the sent query ID to prevent spoofing.
 - **Session `busy` refcount**: must be incremented under `g_lock` *before* spawning the LLM thread (in `handler.c`), not inside the thread itself, to prevent the reaper from destroying the session in the gap.
+- **Pending prompt chunks are cleared** after LLM processing to prevent stale data from polluting future messages.
+- **LLM thread buffers are heap-allocated** (not stack) to avoid stack overflow under concurrent load.
+- **DoT/DoH connections are capped** at `MAX_TLS_CLIENTS` (128) to prevent thread-exhaustion DoS.
 
 ## Dependencies
 
